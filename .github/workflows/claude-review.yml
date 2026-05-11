@@ -76,6 +76,10 @@ jobs:
           # Post (and update on re-runs) a single consolidated PR comment
           # containing whatever Claude prints as its final message.
           use_sticky_comment: true
+          # Print Claude's full transcript (tool calls + reasoning) to the
+          # action's step log — useful for debugging review behavior. Does
+          # not affect what gets posted as the sticky PR comment.
+          show_full_output: true
           prompt: |
             You are reviewing a pull request against the standards in CLAUDE.md
             at the repo root. Read it before commenting — it defines the
