@@ -1,0 +1,32 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: forge:local
+    container_name: forge-api
+    ports:
+      # Host:container — both default to 8000. Override with FORGE_PORT in
+      # a top-level .env (read by compose) to expose a different port.
+      - "${FORGE_PORT:-8000}:${FORGE_PORT:-8000}"
+    environment:
+      FORGE_APP_NAME: ${FORGE_APP_NAME:-Forge}
+      FORGE_ENVIRONMENT: ${FORGE_ENVIRONMENT:-dev}
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-INFO}
+      FORGE_HOST: ${FORGE_HOST:-0.0.0.0}
+      FORGE_PORT: ${FORGE_PORT:-8000}
+      FORGE_RELOAD: ${FORGE_RELOAD:-true}
+    volumes:
+      - ./src:/app/src:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, urllib.request; urllib.request.urlopen('http://localhost:' + os.environ.get('FORGE_PORT', '8000') + '/livez').read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
