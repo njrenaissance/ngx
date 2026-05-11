@@ -1,0 +1,8 @@
+# Bootstrap uses local state (it provisions the remote-state backend itself).
+# The state file references the live S3 bucket and DynamoDB table; treat it
+# as sensitive and keep it out of git.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
