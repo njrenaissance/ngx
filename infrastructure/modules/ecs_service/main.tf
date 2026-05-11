@@ -165,11 +165,11 @@ resource "aws_ecs_task_definition" "app" {
       { name = "FORGE_LOG_LEVEL", value = "INFO" },
       { name = "FORGE_HOST", value = "0.0.0.0" },
       { name = "FORGE_PORT", value = "8000" },
-      { name = "DATABASE_HOST", value = var.database_host },
-      { name = "DATABASE_PORT", value = tostring(var.database_port) },
-      { name = "DATABASE_NAME", value = var.database_name },
-      { name = "DATABASE_USER", value = var.database_user },
-      { name = "DATABASE_SSL_MODE", value = var.database_ssl_mode },
+      { name = "FORGE_DATABASE__HOST", value = var.database_host },
+      { name = "FORGE_DATABASE__PORT", value = tostring(var.database_port) },
+      { name = "FORGE_DATABASE__NAME", value = var.database_name },
+      { name = "FORGE_DATABASE__USER", value = var.database_user },
+      { name = "FORGE_DATABASE__SSL_MODE", value = var.database_ssl_mode },
     ]
 
     # Secrets injected at task start by the execution role. JSON-key syntax
