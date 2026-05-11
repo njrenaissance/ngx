@@ -18,11 +18,13 @@ on:
     branches: [main]
     paths:
       - 'infrastructure/dev/**'
+      - 'infrastructure/modules/**'
       - '.github/workflows/terraform.yml'
   push:
     branches: [main]
     paths:
       - 'infrastructure/dev/**'
+      - 'infrastructure/modules/**'
       - '.github/workflows/terraform.yml'
   workflow_dispatch:
 
@@ -80,6 +82,16 @@ jobs:
       - name: terraform validate
         run: terraform validate -no-color
         working-directory: ${{ env.WORKING_DIRECTORY }}
+
+      # Module-level contract tests. Run in plan mode against the offline-safe
+      # AWS provider config in the test file (no AWS API calls). One entry
+      # per module that ships a tests/ directory — extend as new modules add
+      # their own test files.
+      - name: terraform test — ecr module
+        run: |
+          terraform init -input=false -backend=false
+          terraform test -no-color
+        working-directory: infrastructure/modules/ecr
 
       - name: terraform plan
         id: tfplan
