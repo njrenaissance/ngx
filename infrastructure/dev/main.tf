@@ -1,17 +1,21 @@
 data "aws_availability_zones" "available" { state = "available" }
 
+locals {
+  name_prefix = "forge-${var.environment}"
+}
+
 # ─── VPC ─────────────────────────────────────────────────────────────────────
 
 resource "aws_vpc" "main" {
   cidr_block           = "10.1.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
-  tags = { Name = "ngx-scratch-vpc" }
+  tags                 = { Name = "${local.name_prefix}-vpc" }
 }
 
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
-  tags   = { Name = "ngx-scratch-igw" }
+  tags   = { Name = "${local.name_prefix}-igw" }
 }
 
 resource "aws_subnet" "public" {
@@ -20,7 +24,7 @@ resource "aws_subnet" "public" {
   cidr_block              = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index)
   availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
-  tags                    = { Name = "ngx-scratch-public-${count.index + 1}" }
+  tags                    = { Name = "${local.name_prefix}-public-${count.index + 1}" }
 }
 
 resource "aws_subnet" "private" {
@@ -28,15 +32,18 @@ resource "aws_subnet" "private" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index + 10)
   availability_zone = data.aws_availability_zones.available.names[count.index]
-  tags              = { Name = "ngx-scratch-private-${count.index + 1}" }
+  tags              = { Name = "${local.name_prefix}-private-${count.index + 1}" }
 }
 
-resource "aws_eip" "nat" { domain = "vpc" }
+resource "aws_eip" "nat" {
+  domain = "vpc"
+  tags   = { Name = "${local.name_prefix}-nat-eip" }
+}
 
 resource "aws_nat_gateway" "main" {
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public[0].id
-  tags          = { Name = "ngx-scratch-nat" }
+  tags          = { Name = "${local.name_prefix}-nat" }
 }
 
 resource "aws_route_table" "public" {
@@ -45,7 +52,7 @@ resource "aws_route_table" "public" {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.main.id
   }
-  tags = { Name = "ngx-scratch-public-rt" }
+  tags = { Name = "${local.name_prefix}-public-rt" }
 }
 
 resource "aws_route_table" "private" {
@@ -54,7 +61,7 @@ resource "aws_route_table" "private" {
     cidr_block     = "0.0.0.0/0"
     nat_gateway_id = aws_nat_gateway.main.id
   }
-  tags = { Name = "ngx-scratch-private-rt" }
+  tags = { Name = "${local.name_prefix}-private-rt" }
 }
 
 resource "aws_route_table_association" "public" {
@@ -72,7 +79,7 @@ resource "aws_route_table_association" "private" {
 # ─── Security Groups ──────────────────────────────────────────────────────────
 
 resource "aws_security_group" "alb" {
-  name        = "ngx-scratch-alb-sg"
+  name        = "${local.name_prefix}-alb-sg"
   description = "ALB inbound HTTP"
   vpc_id      = aws_vpc.main.id
 
@@ -90,17 +97,17 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "ngx-scratch-alb-sg" }
+  tags = { Name = "${local.name_prefix}-alb-sg" }
 }
 
 resource "aws_security_group" "app" {
-  name        = "ngx-scratch-app-sg"
+  name        = "${local.name_prefix}-app-sg"
   description = "ECS tasks inbound from ALB only"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    from_port       = 80
-    to_port         = 80
+    from_port       = 8000
+    to_port         = 8000
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
@@ -112,29 +119,32 @@ resource "aws_security_group" "app" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "ngx-scratch-app-sg" }
+  tags = { Name = "${local.name_prefix}-app-sg" }
 }
 
 # ─── ALB ─────────────────────────────────────────────────────────────────────
 
 resource "aws_lb" "main" {
-  name               = "ngx-scratch-alb"
+  name               = "${local.name_prefix}-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
-  tags               = { Name = "ngx-scratch-alb" }
+  tags               = { Name = "${local.name_prefix}-alb" }
 }
 
 resource "aws_lb_target_group" "app" {
-  name        = "ngx-scratch-tg"
-  port        = 80
+  name        = "${local.name_prefix}-tg"
+  port        = 8000
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
   target_type = "ip"
 
+  # ALB probes the readiness endpoint so it stops routing to a task that's
+  # crashed or restarting. Liveness is the orchestrator's concern (ECS task
+  # health) and lives at /livez.
   health_check {
-    path                = "/"
+    path                = "/readyz"
     interval            = 30
     timeout             = 5
     healthy_threshold   = 2
@@ -142,7 +152,7 @@ resource "aws_lb_target_group" "app" {
     matcher             = "200"
   }
 
-  tags = { Name = "ngx-scratch-tg" }
+  tags = { Name = "${local.name_prefix}-tg" }
 }
 
 resource "aws_lb_listener" "http" {
@@ -156,15 +166,61 @@ resource "aws_lb_listener" "http" {
   }
 }
 
+# ─── ECR ──────────────────────────────────────────────────────────────────────
+
+resource "aws_ecr_repository" "forge" {
+  name                 = local.name_prefix
+  image_tag_mutability = "MUTABLE"
+
+  # Scan images on push for known CVEs. Findings appear in the AWS console
+  # under ECR → Repositories → forge-dev → Images.
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = { Name = local.name_prefix }
+}
+
+resource "aws_ecr_lifecycle_policy" "forge" {
+  repository = aws_ecr_repository.forge.name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Expire untagged images after 1 day (cleans up half-finished pushes)"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 1
+        }
+        action = { type = "expire" }
+      },
+      {
+        rulePriority = 2
+        description  = "Keep only the 10 most recent images total"
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 10
+        }
+        action = { type = "expire" }
+      }
+    ]
+  })
+}
+
 # ─── ECS ─────────────────────────────────────────────────────────────────────
 
 resource "aws_cloudwatch_log_group" "app" {
-  name              = "/ecs/ngx-scratch"
+  name              = "/ecs/${local.name_prefix}"
   retention_in_days = 7
+  tags              = { Name = "/ecs/${local.name_prefix}" }
 }
 
 resource "aws_iam_role" "ecs_execution" {
-  name = "ngx-scratch-ecs-execution-role"
+  name = "${local.name_prefix}-ecs-execution-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -174,6 +230,8 @@ resource "aws_iam_role" "ecs_execution" {
       Principal = { Service = "ecs-tasks.amazonaws.com" }
     }]
   })
+
+  tags = { Name = "${local.name_prefix}-ecs-execution-role" }
 }
 
 resource "aws_iam_role_policy_attachment" "ecs_execution" {
@@ -182,12 +240,12 @@ resource "aws_iam_role_policy_attachment" "ecs_execution" {
 }
 
 resource "aws_ecs_cluster" "main" {
-  name = "ngx-scratch-cluster"
-  tags = { Name = "ngx-scratch-cluster" }
+  name = local.name_prefix
+  tags = { Name = local.name_prefix }
 }
 
 resource "aws_ecs_task_definition" "app" {
-  family                   = "ngx-scratch-app"
+  family                   = "${local.name_prefix}-app"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
@@ -196,24 +254,36 @@ resource "aws_ecs_task_definition" "app" {
 
   container_definitions = jsonencode([{
     name      = "app"
-    image     = "nginx:latest"
+    image     = var.app_image
     essential = true
 
-    portMappings = [{ containerPort = 80, protocol = "tcp" }]
+    portMappings = [{ containerPort = 8000, protocol = "tcp" }]
+
+    # Map Forge runtime configuration through the FORGE_ env-var layer
+    # (see src/forge/config.py DEFAULT_SETTINGS).
+    environment = [
+      { name = "FORGE_APP_NAME", value = "Forge" },
+      { name = "FORGE_ENVIRONMENT", value = var.environment },
+      { name = "FORGE_LOG_LEVEL", value = "INFO" },
+      { name = "FORGE_HOST", value = "0.0.0.0" },
+      { name = "FORGE_PORT", value = "8000" },
+    ]
 
     logConfiguration = {
       logDriver = "awslogs"
       options = {
-        "awslogs-group"         = "/ecs/ngx-scratch"
-        "awslogs-region"        = "us-east-1"
+        "awslogs-group"         = aws_cloudwatch_log_group.app.name
+        "awslogs-region"        = var.aws_region
         "awslogs-stream-prefix" = "app"
       }
     }
   }])
+
+  tags = { Name = "${local.name_prefix}-app" }
 }
 
 resource "aws_ecs_service" "app" {
-  name            = "ngx-scratch-app"
+  name            = local.name_prefix
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = 1
@@ -228,14 +298,37 @@ resource "aws_ecs_service" "app" {
   load_balancer {
     target_group_arn = aws_lb_target_group.app.arn
     container_name   = "app"
-    container_port   = 80
+    container_port   = 8000
   }
 
   depends_on = [aws_iam_role_policy_attachment.ecs_execution]
+
+  tags = { Name = local.name_prefix }
 }
 
 # ─── Outputs ─────────────────────────────────────────────────────────────────
 
 output "alb_dns_name" {
-  value = aws_lb.main.dns_name
+  description = "Public DNS name of the Forge ALB. Hit this URL to reach the service."
+  value       = aws_lb.main.dns_name
+}
+
+output "ecr_repository_url" {
+  description = "ECR repository URL for the Forge container image. CI tags and pushes here."
+  value       = aws_ecr_repository.forge.repository_url
+}
+
+output "ecs_cluster_name" {
+  description = "ECS cluster name. Referenced by deploy.yml to trigger rolling deploys."
+  value       = aws_ecs_cluster.main.name
+}
+
+output "ecs_service_name" {
+  description = "ECS service name. Referenced by deploy.yml for `aws ecs update-service --force-new-deployment`."
+  value       = aws_ecs_service.app.name
+}
+
+output "cloudwatch_log_group_name" {
+  description = "CloudWatch log group ECS task logs stream to."
+  value       = aws_cloudwatch_log_group.app.name
 }

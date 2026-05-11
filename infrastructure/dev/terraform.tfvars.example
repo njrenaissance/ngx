@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars (gitignored) and edit for local use.
+# In CI, these are passed via TF_VAR_<name> environment variables instead.
+
+aws_region  = "us-east-1"
+environment = "dev"
+
+# app_image has no default — set it before applying. Examples:
+#   Local smoke test against the GHCR image:
+#     app_image = "ghcr.io/njrenaissance/ngx:latest"
+#   Real CI-driven deploy (the build-container workflow writes the ECR tag):
+#     app_image = "328926346833.dkr.ecr.us-east-1.amazonaws.com/forge-dev:0.1.0"
+app_image = "ghcr.io/njrenaissance/ngx:latest"
