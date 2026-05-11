@@ -159,17 +159,17 @@ The API and worker share Pydantic models, DB models, and Celery task signatures 
 ---
 
 **Hard requirements from PDF that MUST be true at submission:**
-- [ ] All workloads deployed via Terraform via CI/CD
-- [ ] Reusable TF modules + `terraform test` coverage on at least one module
-- [ ] No wildcard IAM, no hardcoded secrets (SSM/Secrets Manager)
-- [ ] Service is containerized, exposed via ALB, **reachable for demo**
-- [ ] Service does input validation, error handling, structured logging
-- [ ] Service writes to S3 / DynamoDB / Aurora (we use Aurora — pairs with Option 1)
-- [ ] CloudWatch alarms with SNS notifications for key metrics (ECS CPU/mem)
-- [ ] README + DECISIONS.md (1–2 paragraphs on a key choice)
-- [ ] `diagrams/` with draw.io `.xml` + image
-- [ ] `CLAUDE.md` present (✓ already)
-- [ ] **At least one PR left open** showing AI iteration
+- [x] All workloads deployed via Terraform via CI/CD — `terraform.yml` (plan/apply w/ env gate) + `deploy.yml` (force-new-deployment)
+- [ ] Reusable TF modules + `terraform test` coverage on at least one module — _flat `infrastructure/dev/main.tf`; no `modules/`, no `*.tftest.hcl`_
+- [~] No wildcard IAM, no hardcoded secrets (SSM/Secrets Manager) — _deployer policy scoped to `forge-*` ARNs (PR #11); no SSM/Secrets Manager wired yet (nothing to store)_
+- [x] Service is containerized, exposed via ALB, **reachable for demo** — Fargate task behind `forge-dev-alb`
+- [ ] Service does input validation, error handling, structured logging — _only health endpoints exist; no Pydantic models, no structlog_
+- [ ] Service writes to S3 / DynamoDB / Aurora — _no data layer yet_
+- [ ] CloudWatch alarms with SNS notifications for key metrics (ECS CPU/mem) — _log group only_
+- [~] README + DECISIONS.md (1–2 paragraphs on a key choice) — _README done; DECISIONS.md missing_
+- [~] `diagrams/` with draw.io `.xml` + image — _`docs/diagrams/NGX_Networkinig.drawio` exists (filename typo); no PNG export_
+- [x] `CLAUDE.md` present
+- [ ] **At least one PR left open** showing AI iteration — _PR #2, #3, #11 all merged_
 
 ---
 
@@ -178,7 +178,8 @@ The API and worker share Pydantic models, DB models, and Celery task signatures 
 This is what each rubric category needs at minimum to score well. Anything beyond is iteration.
 
 ### Service (30%) — minimum bar
-- [ ] FastAPI app with: `POST /v1/buckets`, `GET /v1/buckets/{id}`, `GET /v1/buckets`, `GET /health/live`, `GET /health/ready`, `GET /docs`
+
+- [~] FastAPI app with: `POST /v1/buckets`, `GET /v1/buckets/{id}`, `GET /v1/buckets`, `GET /health/live`, `GET /health/ready`, `GET /docs` — _only `/livez`, `/readyz`, `/`, `/docs`, `/openapi.json` exist; bucket endpoints not implemented_
 - [ ] Pydantic request validation (name regex, region allowlist, tags required: `Owner`, `CostCenter`)
 - [ ] Idempotency on `POST` (client-supplied `Idempotency-Key` header → unique constraint)
 - [ ] Errors: 400 validation, 409 conflict (already exists / dup idempotency key), 422 policy violation, 500 mapped to RFC 7807 problem+json
@@ -188,34 +189,38 @@ This is what each rubric category needs at minimum to score well. Anything beyon
 - [ ] **Decision captured in DECISIONS.md**: "Why shell out to the Terraform binary in a Celery worker, not Terraform Cloud and not a Python wrapper library" — the wrapper landscape (`python-terraform`, `libterraform`, CDKTF) all still require the binary; `tfexec` is Go-only; binary + per-request state is the canonical pattern (Atlantis/Terragrunt model).
 
 ### Terraform (25%) — minimum bar
-- [ ] Module-per-concern under `terraform/modules/`: `network`, `ecr`, `ecs_service`, `aurora_serverless`, `kms`, `secrets`
-- [ ] Single env at `terraform/envs/dev/` composing the modules
+
+- [ ] Module-per-concern under `terraform/modules/`: `network`, `ecr`, `ecs_service`, `aurora_serverless`, `kms`, `secrets` — _everything flat in `infrastructure/dev/main.tf`_
+- [~] Single env at `terraform/envs/dev/` composing the modules — _`infrastructure/dev/` exists but doesn't compose modules yet_
 - [ ] **At least one `*.tftest.hcl`** — start with `kms` module (assertions: rotation enabled, key policy has no `Principal: "*"`, alias matches)
-- [ ] `terraform fmt` + `terraform validate` + `tflint` + `checkov` running in CI
-- [ ] OIDC trust between GitHub Actions and AWS (no static AWS keys in repo or GH secrets — only the role ARN)
-- [ ] Backend: S3 + DynamoDB lock. Bootstrap script (`terraform/bootstrap/`) creates the state bucket + lock table outside the main stack. Document the one-time bootstrap step in README.
-- [ ] Least-privilege IAM: ECS task role only allows what the service does (e.g., `s3:CreateBucket`, `s3:PutBucketTagging`, `s3:PutEncryptionConfiguration`, `s3:PutPublicAccessBlock` scoped to `arn:aws:s3:::ngx-managed-*`); task **execution** role separate from task role
+- [~] `terraform fmt` + `terraform validate` + `tflint` + `checkov` running in CI — _`fmt -check` + `validate` + `plan` in `terraform.yml`; `tflint` and `checkov` not added_
+- [ ] OIDC trust between GitHub Actions and AWS (no static AWS keys in repo or GH secrets — only the role ARN) — _still using long-lived `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`_
+- [x] Backend: S3 + DynamoDB lock. Bootstrap script (`terraform/bootstrap/`) creates the state bucket + lock table outside the main stack. Document the one-time bootstrap step in README. — `infrastructure/bootstrap/` + README walkthrough
+- [~] Least-privilege IAM: ECS task role only allows what the service does (e.g., `s3:CreateBucket`, `s3:PutBucketTagging`, `s3:PutEncryptionConfiguration`, `s3:PutPublicAccessBlock` scoped to `arn:aws:s3:::ngx-managed-*`); task **execution** role separate from task role — _execution role exists with AWS-managed policy; no separate task role yet (service doesn't provision anything yet). Deployer IAM policy was scoped to `forge-*` in PR #11._
 - [ ] All sensitive values via Secrets Manager (DB credentials) or SSM Parameter Store (config)
 - [ ] **Option 1 inclusions in MVP**: KMS CMK on Aurora storage + CloudWatch log groups + S3 state bucket. (TLS on ALB, CMK on everything else, Aurora IAM auth, autoscaling — iteration.)
 
 ### AI workflow (20%) — minimum bar
-- [ ] `CLAUDE.md` present (✓) — extend with: project glossary, do/don't list, decision log pointer
-- [ ] Branch-per-issue, conventional commits, **co-author trailer on every commit**
-- [ ] Issue → PR cadence visible. Target ~5 PRs total, each scoped to one issue, **non-squash merges** (PDF requires this)
+
+- [x] `CLAUDE.md` present (✓) — extend with: project glossary, do/don't list, decision log pointer
+- [x] Branch-per-issue, conventional commits, **co-author trailer on every commit** — `issue-1`, `fix/ecr-iam-perms`, `issue-4`; merge commits, not squash; co-author trailer on every commit
+- [~] Issue → PR cadence visible. Target ~5 PRs total, each scoped to one issue, **non-squash merges** (PDF requires this) — _3 of ~5 PRs landed (PR #2, #3, #11), all merge-commits_
 - [ ] **One PR left open** at submission showing iteration in progress (e.g., adding DynamoDB resource type, or wiring Bedrock pre-flight check). PR description includes a short "AI collaboration notes" section
 - [ ] Optional but high-leverage: a short `docs/AI_WORKFLOW.md` capturing 3–4 specific examples (one course-correction, one win, one limitation)
 
 ### CI/CD (15%) — minimum bar
-- [ ] Existing workflows kept: `format-lint.yml`, `unit-tests.yml`, `ci.yml`, `build-container.yml` (✓)
-- [ ] **Add `terraform.yml`**: fmt → validate → tflint → checkov → `terraform plan` on PR (post plan summary as PR comment) → `terraform apply` on push to main with environment protection
-- [ ] **Add `deploy.yml`**: after container builds and pushes to ECR, run `aws ecs update-service --force-new-deployment`
-- [ ] Update `build-container.yml` to push to **ECR in addition to GHCR** (or replace; ECR is what ECS pulls from)
+
+- [x] Existing workflows kept: `format-lint.yml`, `unit-tests.yml`, `ci.yml`, `build-container.yml` (✓)
+- [~] **Add `terraform.yml`**: fmt → validate → tflint → checkov → `terraform plan` on PR (post plan summary as PR comment) → `terraform apply` on push to main with environment protection — _fmt/validate/plan/apply + PR comment + `production` env gate done; `tflint` and `checkov` not added_
+- [x] **Add `deploy.yml`**: after container builds and pushes to ECR, run `aws ecs update-service --force-new-deployment` — incl. `aws ecs wait services-stable`
+- [x] Update `build-container.yml` to push to **ECR in addition to GHCR** (or replace; ECR is what ECS pulls from) — pushes `:latest`, `:<version>`, `:<sha>` to ECR
 - [ ] One CloudWatch alarm + SNS topic with email subscription for ECS CPU > 80% (this is the minimum for the rubric's "alarms with SNS notifications" line — not full observability)
 
 ### Docs (10%) — minimum bar
-- [ ] `README.md`: what it is, architecture diagram embedded, deploy steps (bootstrap → terraform apply → push container), API examples (curl), demo URL, local dev (docker-compose), teardown
+
+- [~] `README.md`: what it is, architecture diagram embedded, deploy steps (bootstrap → terraform apply → push container), API examples (curl), demo URL, local dev (docker-compose), teardown — _structure + deploy steps + local dev done; no live demo URL, no API examples (no API yet), no teardown section_
 - [ ] `DECISIONS.md`: one key decision expanded — recommended: **"Why shell out to the Terraform binary in a Celery worker, not Terraform Cloud and not a Python wrapper library"**
-- [ ] `diagrams/architecture.drawio` + `architecture.png`
+- [~] `diagrams/architecture.drawio` + `architecture.png` — _`docs/diagrams/NGX_Networkinig.drawio` exists (filename typo `Networkinig`); no `.png` export_
 - [ ] `NGX_CHALLENGE_DECISIONS.md` (referenced by CLAUDE.md) — running architecture log
 
 ---

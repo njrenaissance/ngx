@@ -184,6 +184,8 @@ resource "aws_ecr_repository" "forge" {
 resource "aws_ecr_lifecycle_policy" "forge" {
   repository = aws_ecr_repository.forge.name
 
+  # Rule ordering matters — ECR evaluates by ascending rulePriority and the
+  # first match wins. Specific ephemeral-tag patterns come before broad rules.
   policy = jsonencode({
     rules = [
       {
@@ -199,11 +201,13 @@ resource "aws_ecr_lifecycle_policy" "forge" {
       },
       {
         rulePriority = 2
-        description  = "Keep only the 10 most recent images total"
+        description  = "Expire ephemeral build tags (sha-*, pr-*) after 30 days"
         selection = {
-          tagStatus   = "any"
-          countType   = "imageCountMoreThan"
-          countNumber = 10
+          tagStatus     = "tagged"
+          tagPrefixList = ["sha-", "pr-"]
+          countType     = "sinceImagePushed"
+          countUnit     = "days"
+          countNumber   = 30
         }
         action = { type = "expire" }
       }

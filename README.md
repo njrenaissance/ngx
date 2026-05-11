@@ -1,5 +1,8 @@
 # Forge — NGX Self-Service Infrastructure Provisioning Service
 
+[![CI Pipeline](https://github.com/njrenaissance/ngx/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/njrenaissance/ngx/actions/workflows/ci.yml)
+[![Deploy ECS Service](https://github.com/njrenaissance/ngx/actions/workflows/deploy.yml/badge.svg?branch=main)](https://github.com/njrenaissance/ngx/actions/workflows/deploy.yml)
+
 Forge is a small platform-engineering service that accepts validated requests
 to provision AWS resources, queues them for asynchronous execution, and runs
 the actual provisioning through Terraform. It is the deliverable for the NGX

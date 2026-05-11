@@ -63,12 +63,25 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_REPOSITORY }}
+          # Tag scheme:
+          #   :latest     — main pushes only (overwrites)
+          #   :<version>  — main pushes only (from pyproject.toml)
+          #   :sha-<sha>  — always (immutable per-commit ref; `sha-` prefix
+          #                 matches the ECR lifecycle policy's pruning rule)
+          #   :main       — convenience tag for the latest main build
+          #   :pr-<N>     — emitted on pull_request events (no-op until a
+          #                 pull_request trigger is added; `pr-` prefix
+          #                 matches the ECR lifecycle policy's pruning rule)
+          # Non-main branch tags are intentionally NOT emitted: a manual
+          # workflow_dispatch from a feature branch would otherwise push an
+          # un-prunable `:<branch-name>` tag (no lifecycle rule matches it).
+          # Commits on feature branches remain addressable via `:sha-<sha>`.
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.ref == 'refs/heads/main' }}
-            type=sha,prefix=
-            type=ref,event=branch
-            type=ref,event=pr
+            type=sha,prefix=sha-
+            type=ref,event=branch,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=pr,prefix=pr-
 
       - name: Build and push
         uses: docker/build-push-action@v6
