@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import TypedDict
 
 from fastapi import APIRouter
 
@@ -7,8 +8,20 @@ from forge.config import settings
 
 router = APIRouter(tags=["health"])
 
-# Service name → readiness check function. Each function returns
-# (healthy: bool, detail: str). Add new dependencies here as one line:
+
+class CheckResult(TypedDict):
+    status: str  # "ok" | "error"
+    detail: str
+
+
+class ReadyzResponse(TypedDict):
+    status: str  # "ok" | "degraded"
+    checks: dict[str, CheckResult]
+
+
+# Service name → readiness check function. Each function MUST return
+# (healthy: bool, detail: str) and MUST NOT raise. Add new dependencies
+# here as one line, e.g.:
 #   "redis": redis.readiness_check,
 READINESS_CHECKS: dict[str, Callable[[], tuple[bool, str]]] = {
     "db": db.readiness_check,
