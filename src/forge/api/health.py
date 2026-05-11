@@ -1,9 +1,18 @@
+from collections.abc import Callable
+
 from fastapi import APIRouter
 
-from forge import __version__
+from forge import __version__, db
 from forge.config import settings
 
 router = APIRouter(tags=["health"])
+
+# Service name → readiness check function. Each function returns
+# (healthy: bool, detail: str). Add new dependencies here as one line:
+#   "redis": redis.readiness_check,
+READINESS_CHECKS: dict[str, Callable[[], tuple[bool, str]]] = {
+    "db": db.readiness_check,
+}
 
 
 @router.get("/livez")
@@ -22,11 +31,26 @@ def livez() -> dict[str, str]:
 
 
 @router.get("/readyz")
-def readyz() -> dict[str, str]:
-    """Readiness probe — the process is ready to serve traffic.
+def readyz() -> dict[str, object]:
+    """Readiness probe — runs all registered checks and reports each result.
 
-    Consumed by the load balancer (ALB target group) to decide whether to route
-    requests to this instance. Currently a stub; later PRs will check downstream
-    dependencies (DB, Redis).
+    Always returns HTTP 200 (soft readiness). The top-level `status` is
+    `"ok"` when every check passes and `"degraded"` when any check fails.
+    Per-service detail lives under `checks`. We intentionally do NOT return
+    503 on failure yet — with a single ECS task and no replicas to fail over
+    to, that would just take the whole service offline. Flip to strict when
+    we have more than one task in the target group.
     """
-    return {"status": "ok"}
+    checks: dict[str, dict[str, str]] = {}
+    all_ok = True
+
+    for name, check_fn in READINESS_CHECKS.items():
+        ok, detail = check_fn()
+        checks[name] = {"status": "ok" if ok else "error", "detail": detail}
+        if not ok:
+            all_ok = False
+
+    return {
+        "status": "ok" if all_ok else "degraded",
+        "checks": checks,
+    }
