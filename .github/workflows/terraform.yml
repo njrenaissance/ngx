@@ -95,6 +95,12 @@ jobs:
           terraform test -no-color
         working-directory: infrastructure/modules/ecr
 
+      - name: terraform test — kms module
+        run: |
+          terraform init -input=false -backend=false
+          terraform test -no-color
+        working-directory: infrastructure/modules/kms
+
       - name: terraform plan
         id: tfplan
         env:
