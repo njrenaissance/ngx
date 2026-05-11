@@ -1,0 +1,19 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ai-review:
+    if: github.event.pull_request.draft != true
+    uses: njrenaissance/pr-review-agent/.github/workflows/ai-code-review.yml@c1b2dd6733f7a2b8b93a755770ba351acb431a79
+    with:
+      model: ${{ vars.CLAUDE_REVIEW_MODEL }}
+    secrets:
+      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
