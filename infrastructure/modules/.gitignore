@@ -1,0 +1,5 @@
+# Local Terraform plugin downloads and provider cache, created by
+# `terraform init` / `terraform test` when running module tests locally
+# or in CI. Modules don't hold state; these are pure scratch artifacts.
+.terraform/
+.terraform.lock.hcl
