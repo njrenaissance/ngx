@@ -119,16 +119,22 @@ run "key_administrators_have_no_encrypt_decrypt_actions" {
   # data. If this assertion fails, the Admin role can read every secret
   # the key protects — that's the breach this split was designed to prevent.
   assert {
+    # `s.Action` can be a single string (e.g. "kms:*" on the root statement)
+    # or a list of strings (e.g. on KeyAdministrators). `contains()` requires
+    # a list, so wrap each call in `try()` — if Action is a string, the call
+    # fails and we treat the action as absent (false). The earlier filter on
+    # Sid means we only care about KeyAdministrators statements anyway, but
+    # `&&` short-circuit isn't enough because Terraform evaluates list
+    # literals eagerly during validation in some versions.
     condition = length([
       for s in jsondecode(aws_kms_key.main.policy).Statement :
       s if(
-        try(s.Sid, "") == "KeyAdministrators" &&
-        anytrue([
-          contains(s.Action, "kms:Encrypt"),
-          contains(s.Action, "kms:Decrypt"),
-          contains(s.Action, "kms:ReEncrypt*"),
-          contains(s.Action, "kms:GenerateDataKey*"),
-        ])
+        try(s.Sid, "") == "KeyAdministrators" && (
+          try(contains(s.Action, "kms:Encrypt"), false) ||
+          try(contains(s.Action, "kms:Decrypt"), false) ||
+          try(contains(s.Action, "kms:ReEncrypt*"), false) ||
+          try(contains(s.Action, "kms:GenerateDataKey*"), false)
+        )
       )
     ]) == 0
     error_message = "KeyAdministrators must not include Encrypt/Decrypt/ReEncrypt/GenerateDataKey actions — those are Key User actions. Mixing them defeats separation of duties."
