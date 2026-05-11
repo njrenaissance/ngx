@@ -180,69 +180,6 @@
             "Resource": "arn:aws:ecr:*:328926346833:repository/forge-*"
         },
         {
-            "Sid": "S3ReadPermissions",
-            "Effect": "Allow",
-            "Action": [
-                "s3:GetBucketVersioning",
-                "s3:GetBucketPublicAccessBlock",
-                "s3:GetEncryptionConfiguration",
-                "s3:GetBucketPolicy",
-                "s3:GetBucketLocation",
-                "s3:GetBucketTagging",
-                "s3:ListBucket",
-                "s3:GetObject"
-            ],
-            "Resource": "*"
-        },
-        {
-            "Sid": "S3BucketWritePermissions",
-            "Effect": "Allow",
-            "Action": [
-                "s3:CreateBucket",
-                "s3:DeleteBucket",
-                "s3:PutBucketVersioning",
-                "s3:PutBucketPublicAccessBlock",
-                "s3:PutEncryptionConfiguration",
-                "s3:PutBucketPolicy",
-                "s3:DeleteBucketPolicy",
-                "s3:PutBucketTagging"
-            ],
-            "Resource": "arn:aws:s3:::forge-*"
-        },
-        {
-            "Sid": "S3ObjectWritePermissions",
-            "Effect": "Allow",
-            "Action": [
-                "s3:PutObject",
-                "s3:DeleteObject"
-            ],
-            "Resource": "arn:aws:s3:::forge-*/*"
-        },
-        {
-            "Sid": "DynamoDBReadPermissions",
-            "Effect": "Allow",
-            "Action": [
-                "dynamodb:DescribeTable",
-                "dynamodb:ListTagsOfResource",
-                "dynamodb:DescribeContinuousBackups",
-                "dynamodb:DescribeTimeToLive"
-            ],
-            "Resource": "*"
-        },
-        {
-            "Sid": "DynamoDBWritePermissions",
-            "Effect": "Allow",
-            "Action": [
-                "dynamodb:CreateTable",
-                "dynamodb:DeleteTable",
-                "dynamodb:GetItem",
-                "dynamodb:PutItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:TagResource"
-            ],
-            "Resource": "arn:aws:dynamodb:*:328926346833:table/forge-*"
-        },
-        {
             "Sid": "ServiceLinkedRoles",
             "Effect": "Allow",
             "Action": "iam:CreateServiceLinkedRole",

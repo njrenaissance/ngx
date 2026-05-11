@@ -25,3 +25,15 @@ variable "app_image" {
   description = "Fully-qualified container image URI for the Forge service (e.g. <account>.dkr.ecr.us-east-1.amazonaws.com/forge-dev:0.1.0). Set by CI in the deploy workflow; no default so an accidental local apply can't deploy an unintended image."
   type        = string
 }
+
+variable "oidc_deploy_role_name" {
+  description = "Name of the IAM role used by GitHub Actions OIDC to deploy this stack. Granted KMS administration rights via an explicit KeyAdministrators statement on the project CMK so Terraform never relies on the safety-net root statement for day-to-day key management."
+  type        = string
+  default     = "github-actions-ngx"
+}
+
+variable "production_safety" {
+  description = "Master switch for two database production-safety flags: deletion_protection and skip_final_snapshot. False during iteration so we can tear down cheaply; flip to true via tfvars before the demo (tracked by issue #20). When true, terraform destroy refuses without an explicit override and any destroy that does proceed automatically takes a final snapshot."
+  type        = bool
+  default     = false
+}

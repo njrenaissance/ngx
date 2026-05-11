@@ -1,0 +1,136 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "S3ReadPermissions",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetBucketVersioning",
+                "s3:GetBucketPublicAccessBlock",
+                "s3:GetEncryptionConfiguration",
+                "s3:GetBucketPolicy",
+                "s3:GetBucketLocation",
+                "s3:GetBucketTagging",
+                "s3:ListBucket",
+                "s3:GetObject"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "S3BucketWritePermissions",
+            "Effect": "Allow",
+            "Action": [
+                "s3:CreateBucket",
+                "s3:DeleteBucket",
+                "s3:PutBucketVersioning",
+                "s3:PutBucketPublicAccessBlock",
+                "s3:PutEncryptionConfiguration",
+                "s3:PutBucketPolicy",
+                "s3:DeleteBucketPolicy",
+                "s3:PutBucketTagging"
+            ],
+            "Resource": "arn:aws:s3:::forge-*"
+        },
+        {
+            "Sid": "S3ObjectWritePermissions",
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:DeleteObject"
+            ],
+            "Resource": "arn:aws:s3:::forge-*/*"
+        },
+        {
+            "Sid": "DynamoDBReadPermissions",
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:DescribeTable",
+                "dynamodb:ListTagsOfResource",
+                "dynamodb:DescribeContinuousBackups",
+                "dynamodb:DescribeTimeToLive"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "DynamoDBWritePermissions",
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:CreateTable",
+                "dynamodb:DeleteTable",
+                "dynamodb:GetItem",
+                "dynamodb:PutItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:TagResource"
+            ],
+            "Resource": "arn:aws:dynamodb:*:328926346833:table/forge-*"
+        },
+        {
+            "Sid": "KMSPermissions",
+            "Effect": "Allow",
+            "Action": [
+                "kms:CreateKey",
+                "kms:DescribeKey",
+                "kms:GetKeyPolicy",
+                "kms:PutKeyPolicy",
+                "kms:GetKeyRotationStatus",
+                "kms:EnableKeyRotation",
+                "kms:DisableKeyRotation",
+                "kms:CreateAlias",
+                "kms:DeleteAlias",
+                "kms:UpdateAlias",
+                "kms:ListAliases",
+                "kms:ListResourceTags",
+                "kms:TagResource",
+                "kms:UntagResource",
+                "kms:ScheduleKeyDeletion",
+                "kms:CancelKeyDeletion"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "SecretsManagerPermissions",
+            "Effect": "Allow",
+            "Action": [
+                "secretsmanager:CreateSecret",
+                "secretsmanager:DeleteSecret",
+                "secretsmanager:DescribeSecret",
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue",
+                "secretsmanager:UpdateSecret",
+                "secretsmanager:UpdateSecretVersionStage",
+                "secretsmanager:TagResource",
+                "secretsmanager:UntagResource",
+                "secretsmanager:ListSecretVersionIds"
+            ],
+            "Resource": "arn:aws:secretsmanager:*:328926346833:secret:forge-*"
+        },
+        {
+            "Sid": "RDSPermissions",
+            "Effect": "Allow",
+            "Action": [
+                "rds:CreateDBCluster",
+                "rds:DeleteDBCluster",
+                "rds:ModifyDBCluster",
+                "rds:DescribeDBClusters",
+                "rds:CreateDBInstance",
+                "rds:DeleteDBInstance",
+                "rds:ModifyDBInstance",
+                "rds:DescribeDBInstances",
+                "rds:CreateDBSubnetGroup",
+                "rds:DeleteDBSubnetGroup",
+                "rds:ModifyDBSubnetGroup",
+                "rds:DescribeDBSubnetGroups",
+                "rds:AddTagsToResource",
+                "rds:RemoveTagsFromResource",
+                "rds:ListTagsForResource"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "RDSServiceLinkedRole",
+            "Effect": "Allow",
+            "Action": "iam:CreateServiceLinkedRole",
+            "Resource": "arn:aws:iam::328926346833:role/aws-service-role/rds.amazonaws.com/*"
+        }
+    ]
+}

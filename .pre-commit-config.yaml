@@ -26,3 +26,34 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+
+      # Module-level Terraform contract tests. Same set of tests CI runs in
+      # the `Plan` job (one entry per module that ships a tests/ directory).
+      # Pre-push so it doesn't slow every commit. Catches version-evaluator
+      # drift between local Terraform and CI's pinned 1.10.0 — the test
+      # works on local 1.15 but a list-literal eager-evaluation difference
+      # in 1.10 broke a `contains()` assertion in PR #21.
+      - id: terraform-test-ecr
+        name: terraform test — ecr module
+        entry: bash -c 'cd infrastructure/modules/ecr && terraform init -backend=false -input=false -upgrade > /dev/null && terraform test -no-color'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        files: ^infrastructure/modules/ecr/
+
+      - id: terraform-test-kms
+        name: terraform test — kms module
+        entry: bash -c 'cd infrastructure/modules/kms && terraform init -backend=false -input=false -upgrade > /dev/null && terraform test -no-color'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        files: ^infrastructure/modules/kms/
+
+      # Format check (no auto-fix in CI, so apply same gate locally).
+      - id: terraform-fmt
+        name: terraform fmt -check
+        entry: bash -c 'terraform fmt -check -recursive infrastructure/'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        files: ^infrastructure/.*\.tf$
