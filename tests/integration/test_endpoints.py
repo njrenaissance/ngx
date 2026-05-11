@@ -34,9 +34,15 @@ def test_livez_returns_version(forge_url: str) -> None:
 
 
 def test_readyz(forge_url: str) -> None:
+    """Readyz hits the live Postgres in the Compose stack — the db check
+    must return ok end-to-end. Always 200 (soft readiness)."""
     response = httpx.get(f"{forge_url}/readyz")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["checks"]["db"]["status"] == "ok"
+    assert body["checks"]["db"]["detail"] == "ok"
 
 
 def test_openapi_schema_advertises_version(forge_url: str) -> None:
