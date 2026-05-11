@@ -56,3 +56,5 @@ htmlcov/
 *.db
 *.sqlite
 .tmp/
+docs/cloud-provisioning-platform-spec_1.docx
+docs/SPEC.md
