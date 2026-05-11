@@ -63,12 +63,19 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_REPOSITORY }}
+          # Tag scheme:
+          #   :latest     — main pushes only (overwrites)
+          #   :<version>  — main pushes only (from pyproject.toml)
+          #   :sha-<sha>  — always (immutable per-commit ref; `sha-` prefix
+          #                 matches the ECR lifecycle policy's pruning rule)
+          #   :main       — convenience tag for the latest main build
+          #   :pr-<N>     — only if a pull_request trigger is added later
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.ref == 'refs/heads/main' }}
-            type=sha,prefix=
+            type=sha,prefix=sha-
             type=ref,event=branch
-            type=ref,event=pr
+            type=ref,event=pr,prefix=pr-
 
       - name: Build and push
         uses: docker/build-push-action@v6
