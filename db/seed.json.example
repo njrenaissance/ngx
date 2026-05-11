@@ -1,0 +1,60 @@
+{
+  "cost_centers": [
+    {
+      "code": "CC-4421",
+      "name": "Engineering Platform",
+      "description": "Internal platform and infrastructure tooling"
+    },
+    {
+      "code": "CC-4422",
+      "name": "Product Engineering",
+      "description": "Customer-facing product development"
+    }
+  ],
+  "teams": [
+    {
+      "name": "Platform Team",
+      "cost_center_code": "CC-4421",
+      "chargeback_multiplier": "1.1000"
+    },
+    {
+      "name": "Payments Team",
+      "cost_center_code": "CC-4422",
+      "chargeback_multiplier": "1.0000"
+    }
+  ],
+  "users": [
+    {
+      "first_name": "Alice",
+      "last_name": "Admin",
+      "email": "alice@example.com",
+      "role": "admin",
+      "team": "Platform Team",
+      "api_key": "crp_dev_a11ce000000000000000000000000000"
+    },
+    {
+      "first_name": "Bob",
+      "last_name": "Builder",
+      "email": "bob@example.com",
+      "role": "member",
+      "team": "Platform Team",
+      "api_key": "crp_dev_b0b00000000000000000000000000000"
+    },
+    {
+      "first_name": "Carol",
+      "last_name": "Cruz",
+      "email": "carol@example.com",
+      "role": "admin",
+      "team": "Payments Team",
+      "api_key": "crp_dev_ca401000000000000000000000000000"
+    },
+    {
+      "first_name": "Dan",
+      "last_name": "Dev",
+      "email": "dan@example.com",
+      "role": "member",
+      "team": "Payments Team",
+      "api_key": "crp_dev_da400000000000000000000000000000"
+    }
+  ]
+}

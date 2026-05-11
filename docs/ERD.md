@@ -17,8 +17,8 @@ Domains marked **deferred** are fully designed but not part of the initial imple
 | 3 | [Topology](#3-topology) | `LOGICAL_REGION`, `REGION_AZ_MAP`, `TIER_REGION_MEMBER` | v1 |
 | 4 | [Stack Template](#4-stack-template) | `STACK_TEMPLATE`, `STACK_TEMPLATE_RESOURCE`, `STACK_TEMPLATE_DEP` | schema only — provisioning deferred |
 | 5 | [Resource Provisioning](#5-resource-provisioning) | `RESOURCE_REQUEST`, `DEPLOYMENT`, `DEPLOYMENT_AZ`, `APPLY_JOB` | v1 |
-| 6 | [Stack Instance](#6-stack-instance-deferred) | `STACK_INSTANCE`, `STACK_INSTANCE_RESOURCE` | deferred |
-| 7 | [Finance](#7-finance) | `COST_RECORD`, `AUDIT_LOG` | v1 |
+| 6 | [Stack Instance](#6-stack-instance-deferred) | `STACK_INSTANCE`, `STACK_INSTANCE_RESOURCE` | schema only — provisioning deferred |
+| 7 | [Finance](#7-finance) | `COST_RECORD`, `AUDIT_LOG` | schema only — provisioning deferred |
 
 ---
 

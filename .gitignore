@@ -56,5 +56,7 @@ htmlcov/
 *.db
 *.sqlite
 .tmp/
+db/seed.json
 docs/cloud-provisioning-platform-spec_1.docx
 docs/SPEC.md
+.claude/settings.local.json

@@ -62,6 +62,17 @@ for the NGX Senior Platform Engineer code challenge.
 - Use meaningful commit messages that explain the "why"
 - Maintain consistency with project architecture decisions documented in `docs/DECISIONS.md`
 
+### Security Libraries
+
+**Never implement cryptographic primitives or well-known security protocols from scratch.** Use established libraries:
+
+- **Password / API key hashing**: `bcrypt` (cost factor 12)
+- **Token generation**: `secrets.token_hex()` from the Python standard library
+- **Encryption**: `cryptography` package (Fernet, AES-GCM) — not hand-rolled XOR or Caesar
+- **TLS**: delegate to the runtime (uvicorn, httpx) — never implement transport security manually
+
+Rolling your own is a security regression regardless of how simple the protocol looks. If a well-known library exists for the protocol, use it.
+
 ### Infrastructure Diagrams
 
 - **Source of truth**: Terraform code under `infrastructure/`. Diagrams document what the code provisions; they do not drive it.

@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: forge-postgres
+    environment:
+      POSTGRES_DB: forge
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forge
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
@@ -16,8 +33,17 @@ services:
       FORGE_HOST: ${FORGE_HOST:-0.0.0.0}
       FORGE_PORT: ${FORGE_PORT:-8000}
       FORGE_RELOAD: ${FORGE_RELOAD:-true}
+      FORGE_DATABASE__HOST: postgres
+      FORGE_DATABASE__PORT: 5432
+      FORGE_DATABASE__NAME: forge
+      FORGE_DATABASE__USER: forge
+      FORGE_DATABASE__PASSWORD: forge
+      FORGE_DATABASE__SSL_MODE: disable
     volumes:
       - ./src:/app/src:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -29,4 +55,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 5s
+      start_period: 10s
+
+volumes:
+  postgres_data:
