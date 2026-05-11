@@ -114,9 +114,26 @@
                 "secretsmanager:UpdateSecretVersionStage",
                 "secretsmanager:TagResource",
                 "secretsmanager:UntagResource",
-                "secretsmanager:ListSecretVersionIds"
+                "secretsmanager:ListSecretVersionIds",
+                "secretsmanager:GetResourcePolicy"
             ],
             "Resource": "arn:aws:secretsmanager:*:328926346833:secret:forge-*"
+        },
+        {
+            "Sid": "KMSRDSUse",
+            "Effect": "Allow",
+            "Action": [
+                "kms:CreateGrant",
+                "kms:GenerateDataKey",
+                "kms:Decrypt",
+                "kms:DescribeKey"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringLike": {
+                    "kms:ViaService": "rds.*.amazonaws.com"
+                }
+            }
         },
         {
             "Sid": "RDSPermissions",
