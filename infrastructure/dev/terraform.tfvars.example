@@ -4,9 +4,11 @@
 aws_region  = "us-east-1"
 environment = "dev"
 
-# app_image has no default — set it before applying. Examples:
-#   Local smoke test against the GHCR image:
-#     app_image = "ghcr.io/njrenaissance/ngx:latest"
-#   Real CI-driven deploy (the build-container workflow writes the ECR tag):
+# app_image has no default — set it before applying. CI resolves this to the
+# current `:latest` tag in ECR; for a manual local apply, point at a specific
+# version tag you've pushed.
+#   Latest from ECR (use what CI uses):
+#     app_image = "328926346833.dkr.ecr.us-east-1.amazonaws.com/forge-dev:latest"
+#   Pinned version:
 #     app_image = "328926346833.dkr.ecr.us-east-1.amazonaws.com/forge-dev:0.1.0"
-app_image = "ghcr.io/njrenaissance/ngx:latest"
+app_image = "328926346833.dkr.ecr.us-east-1.amazonaws.com/forge-dev:latest"

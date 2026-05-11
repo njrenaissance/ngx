@@ -1,5 +1,9 @@
 name: Build Container
 
+# Build the Forge image and push to Amazon ECR. ECS Fargate pulls from ECR,
+# so this is the only published target. Triggers on push to main and on
+# manual workflow_dispatch.
+
 on:
   workflow_dispatch:
     inputs:
@@ -8,14 +12,19 @@ on:
         required: false
         default: 'main'
         type: string
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.claude/**'
+      - 'infrastructure/**'
 
 permissions:
   contents: read
-  packages: write
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: njrenaissance/ngx
+  # ID token used by aws-actions/configure-aws-credentials when running OIDC;
+  # ignored under access-key auth.
+  id-token: write
 
 jobs:
   build:
@@ -26,20 +35,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref || 'main' }}
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-        uses: docker/login-action@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Extract version from root pyproject.toml
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Extract version from pyproject.toml
         id: version
         run: |
           VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
@@ -50,7 +62,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ steps.ecr-login.outputs.registry }}/${{ vars.ECR_REPOSITORY }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.ref == 'refs/heads/main' }}
@@ -63,7 +75,7 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          push: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
