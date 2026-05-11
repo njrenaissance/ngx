@@ -88,6 +88,20 @@
             "Resource": "*"
         },
         {
+            "Sid": "KMSSecretsManagerUse",
+            "Effect": "Allow",
+            "Action": [
+                "kms:GenerateDataKey",
+                "kms:Decrypt"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringLike": {
+                    "kms:ViaService": "secretsmanager.*.amazonaws.com"
+                }
+            }
+        },
+        {
             "Sid": "SecretsManagerPermissions",
             "Effect": "Allow",
             "Action": [
@@ -122,7 +136,8 @@
                 "rds:DescribeDBSubnetGroups",
                 "rds:AddTagsToResource",
                 "rds:RemoveTagsFromResource",
-                "rds:ListTagsForResource"
+                "rds:ListTagsForResource",
+                "rds:DescribeGlobalClusters"
             ],
             "Resource": "*"
         },

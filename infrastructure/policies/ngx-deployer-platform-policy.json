@@ -142,7 +142,8 @@
                 "logs:DescribeLogStreams",
                 "logs:PutRetentionPolicy",
                 "logs:TagLogGroup",
-                "logs:ListTagsForResource"
+                "logs:ListTagsForResource",
+                "logs:AssociateKmsKey"
             ],
             "Resource": "*"
         },

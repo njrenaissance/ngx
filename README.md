@@ -81,12 +81,47 @@ variables (all prefixed `FORGE_`):
 Copy `.env.example` to `.env` and edit; both `uv run python -m forge` and
 Docker Compose will pick the values up.
 
-### Run the service in Docker Compose
+### Run the full stack with Postgres
 
 ```sh
 docker compose up -d
 curl http://localhost:8000/livez
 ```
+
+#### Database migrations and seed data
+
+Bring up Postgres first, then run Alembic and the seed script:
+
+```sh
+docker compose up postgres -d
+uv run alembic upgrade head
+uv run python db/seed.py
+```
+
+**Customising the seed data** — the seed script reads `db/seed.json` if it exists,
+otherwise it falls back to `db/seed.json.example` (the committed dev defaults with
+known API keys). To change passwords, add teams, or add users without touching the
+committed example:
+
+```sh
+cp db/seed.json.example db/seed.json
+# Edit db/seed.json — change api_key values, add entries, etc.
+uv run python db/seed.py
+```
+
+`db/seed.json` is gitignored. Never commit it — use `seed.json.example` for
+defaults that the whole team can share.
+
+**Database environment variables** (all prefixed `FORGE_DATABASE__`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FORGE_DATABASE__HOST` | `localhost` | Postgres hostname |
+| `FORGE_DATABASE__PORT` | `5432` | Postgres port |
+| `FORGE_DATABASE__NAME` | `forge` | Database name |
+| `FORGE_DATABASE__USER` | `forge` | Database user |
+| `FORGE_DATABASE__PASSWORD` | *(required)* | Set in `.env` — never committed |
+| `FORGE_DATABASE__SCHEMA` | `public` | PostgreSQL search_path namespace |
 
 ### Endpoints
 

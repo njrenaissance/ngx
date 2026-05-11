@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "forge"
-version = "0.1.0"
+version = "0.2.0"
 description = "Forge — NGX self-service infrastructure provisioning service"
 requires-python = ">=3.12"
 dependencies = [
@@ -17,6 +17,9 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "celery[redis]>=5.3.0",
     "redis>=5.0.0",
+    "bcrypt>=4.0.0",
+    "asyncpg>=0.29.0",
+    "psycopg2-binary>=2.9.0",
 ]
 
 [dependency-groups]
