@@ -185,9 +185,13 @@ Triggers on PR (`plan` only) and push to `main` (`plan` then `apply`).
 
 | Job | When | What |
 |---|---|---|
-| `fmt-validate` | PR + main | `terraform fmt -check`, `init`, `validate` |
-| `plan` | PR + main | `terraform plan`, posts the plan as a PR comment, uploads `tfplan` artifact |
+| `plan` | PR + main | `fmt -check` → `init` → `validate` → `plan`, posts the plan as a PR comment, uploads `tfplan` artifact |
 | `apply` | main only | Requires `production` environment approval, then `terraform apply tfplan` |
+
+`fmt`, `validate`, and `plan` run as steps in the same job to avoid paying
+runner-spinup overhead twice. `apply` is a separate job *only* because GitHub
+Environment approval gates are job-scoped — there's no way to pause a single
+step waiting for a reviewer.
 
 The plan is generated against `app_image = ECR:latest`. Terraform never
 hand-rolls an image-version bump; it always references `:latest` and lets
