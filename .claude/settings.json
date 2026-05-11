@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(Bash)",
+      "Read(PowerShell)",
+      "Read(GitHub)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git merge *)"
+    ]
+  }
+}
