@@ -190,9 +190,9 @@ This is what each rubric category needs at minimum to score well. Anything beyon
 
 ### Terraform (25%) — minimum bar
 
-- [ ] Module-per-concern under `terraform/modules/`: `network`, `ecr`, `ecs_service`, `aurora_serverless`, `kms`, `secrets` — _everything flat in `infrastructure/dev/main.tf`_
-- [~] Single env at `terraform/envs/dev/` composing the modules — _`infrastructure/dev/` exists but doesn't compose modules yet_
-- [ ] **At least one `*.tftest.hcl`** — start with `kms` module (assertions: rotation enabled, key policy has no `Principal: "*"`, alias matches)
+- [~] Module-per-concern under `terraform/modules/`: `network`, `ecr`, `ecs_service`, `aurora_serverless`, `kms`, `secrets` — _`network`, `alb`, `ecr`, `ecs_service` split out under `infrastructure/modules/` in PR #13; `aurora_serverless`, `kms`, `secrets` deferred to Option-1 deepening_
+- [x] Single env at `terraform/envs/dev/` composing the modules — `infrastructure/dev/main.tf` is now a thin composition wiring the four modules together
+- [x] **At least one `*.tftest.hcl`** — `infrastructure/modules/ecr/tests/lifecycle.tftest.hcl` pins the rule-2 prefix-list contract (regression guard for issue #5)
 - [~] `terraform fmt` + `terraform validate` + `tflint` + `checkov` running in CI — _`fmt -check` + `validate` + `plan` in `terraform.yml`; `tflint` and `checkov` not added_
 - [ ] OIDC trust between GitHub Actions and AWS (no static AWS keys in repo or GH secrets — only the role ARN) — _still using long-lived `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`_
 - [x] Backend: S3 + DynamoDB lock. Bootstrap script (`terraform/bootstrap/`) creates the state bucket + lock table outside the main stack. Document the one-time bootstrap step in README. — `infrastructure/bootstrap/` + README walkthrough
