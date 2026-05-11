@@ -55,7 +55,10 @@ jobs:
           VAR_MODEL: ${{ vars.CLAUDE_REVIEW_MODEL }}
         run: |
           # Precedence: workflow_dispatch input → repo variable → fallback.
-          MODEL="${INPUT_MODEL:-${VAR_MODEL:-claude-sonnet-4-6}}"
+          # Fallback is Haiku while we shake out the review workflow — keeps
+          # spend low on every PR until the prompt + harness are reliable.
+          # Bump to claude-sonnet-4-6 once the workflow is stable.
+          MODEL="${INPUT_MODEL:-${VAR_MODEL:-claude-haiku-4-5}}"
           echo "model=${MODEL}" >> "$GITHUB_OUTPUT"
           echo "Using model: ${MODEL}"
 

@@ -22,8 +22,8 @@ on:
 
 permissions:
   contents: read
-  # ID token used by aws-actions/configure-aws-credentials when running OIDC;
-  # ignored under access-key auth.
+  # ID token used by aws-actions/configure-aws-credentials to assume the
+  # AWS deploy role via GitHub OIDC.
   id-token: write
 
 jobs:
@@ -43,8 +43,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Log in to Amazon ECR
