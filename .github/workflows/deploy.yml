@@ -66,6 +66,10 @@ jobs:
               --query 'services[0].deployments[?status==`PRIMARY`].rolloutState | [0]' \
               --output text)
             echo "  [${ELAPSED}s] rolloutState=${STATE}"
+            if [ -z "$STATE" ] || [ "$STATE" = "None" ]; then
+              echo "No PRIMARY deployment found on $CLUSTER/$SERVICE — aborting."
+              exit 1
+            fi
             if [ "$STATE" = "COMPLETED" ]; then
               echo "Deployment completed successfully."
               exit 0
