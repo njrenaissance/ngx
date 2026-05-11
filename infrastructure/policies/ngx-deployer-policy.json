@@ -145,18 +145,23 @@
             "Action": [
                 "ecr:GetAuthorizationToken",
                 "ecr:DescribeRepositories",
+                "ecr:DescribeImages",
                 "ecr:CreateRepository",
                 "ecr:DeleteRepository",
                 "ecr:BatchGetImage",
                 "ecr:GetDownloadUrlForLayer",
                 "ecr:TagResource",
+                "ecr:UntagResource",
+                "ecr:ListTagsForResource",
                 "ecr:BatchCheckLayerAvailability",
                 "ecr:PutImage",
                 "ecr:InitiateLayerUpload",
                 "ecr:UploadLayerPart",
                 "ecr:CompleteLayerUpload",
                 "ecr:PutLifecyclePolicy",
-                "ecr:GetLifecyclePolicy"
+                "ecr:GetLifecyclePolicy",
+                "ecr:PutImageScanningConfiguration",
+                "ecr:PutImageTagMutability"
             ],
             "Resource": "*"
         },
