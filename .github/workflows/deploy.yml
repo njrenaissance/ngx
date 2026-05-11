@@ -49,9 +49,35 @@ jobs:
             --query 'service.deployments[0].{status:status,desired:desiredCount,running:runningCount,rolloutState:rolloutState}' \
             --output table
 
-      - name: Wait for service stable (max 10 min)
+      - name: Wait for deployment rollout (max 10 min)
         run: |
-          aws ecs wait services-stable \
-            --cluster "${{ vars.ECS_CLUSTER }}" \
-            --services "${{ vars.ECS_SERVICE }}"
+          CLUSTER="${{ vars.ECS_CLUSTER }}"
+          SERVICE="${{ vars.ECS_SERVICE }}"
+          TIMEOUT=600
+          INTERVAL=15
+          ELAPSED=0
+
+          echo "Polling for rolloutState=COMPLETED on primary deployment..."
+          while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+            STATE=$(aws ecs describe-services \
+              --cluster "$CLUSTER" \
+              --services "$SERVICE" \
+              --no-cli-pager \
+              --query 'services[0].deployments[?status==`PRIMARY`].rolloutState | [0]' \
+              --output text)
+            echo "  [${ELAPSED}s] rolloutState=${STATE}"
+            if [ "$STATE" = "COMPLETED" ]; then
+              echo "Deployment completed successfully."
+              exit 0
+            fi
+            if [ "$STATE" = "FAILED" ]; then
+              echo "Deployment rollout FAILED."
+              exit 1
+            fi
+            sleep "$INTERVAL"
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          echo "Timed out after ${TIMEOUT}s waiting for rolloutState=COMPLETED."
+          exit 1
         timeout-minutes: 12
