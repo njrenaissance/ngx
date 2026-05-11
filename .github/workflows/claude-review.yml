@@ -71,16 +71,24 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: ${{ steps.model.outputs.model }}
-          # Cap turns to bound cost on pathological diffs.
-          max_turns: 25
+          # v1 dropped top-level `model` / `max_turns`; pass them via claude_args.
+          claude_args: --model ${{ steps.model.outputs.model }} --max-turns 25
+          # Post (and update on re-runs) a single consolidated PR comment
+          # containing whatever Claude prints as its final message.
+          use_sticky_comment: true
           prompt: |
             You are reviewing a pull request against the standards in CLAUDE.md
             at the repo root. Read it before commenting — it defines the
             engineering working agreement (SemVer rules, diagram-sync rule,
             fix-forward migrations, commit conventions, pre-commit hooks).
 
-            Post ONE consolidated PR comment with these sections, in this order:
+            Do NOT try to post a PR comment yourself (no `gh pr comment`, no
+            inline-comment tools). The action posts your FINAL assistant
+            message as a sticky PR comment. Your final message must BE the
+            review body — Markdown only, no preamble like "Here is the
+            review:".
+
+            Produce ONE consolidated review with these sections, in this order:
 
             ## Critical
             ## Major
