@@ -1,0 +1,8 @@
+# Local Terraform state cache + plugin downloads. Real state lives in S3.
+.terraform/
+.terraform.lock.hcl
+
+# Plan binaries and tfvars files (may contain sensitive values).
+*.tfplan
+*.tfvars
+!*.tfvars.example

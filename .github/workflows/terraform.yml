@@ -1,0 +1,191 @@
+name: Terraform
+
+# CI for infrastructure/dev/ only. The bootstrap stack
+# (infrastructure/bootstrap/) is run ONCE manually by a human and is NEVER
+# touched by this workflow — see infrastructure/bootstrap/README.md.
+#
+# Flow:
+#   - On PR: fmt + validate + plan; post the plan summary as a PR comment.
+#   - On push to main: fmt + validate + plan, then apply (gated by the
+#     `production` GitHub Environment so apply waits for a human reviewer).
+#
+# Credentials: ngx-deployer IAM user via AWS_ACCESS_KEY_ID/SECRET secrets.
+# `TF_VAR_aws_profile=""` overrides the variable's default of "ngx-deployer"
+# so the AWS provider falls back to env-var credentials.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infrastructure/dev/**'
+      - '.github/workflows/terraform.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infrastructure/dev/**'
+      - '.github/workflows/terraform.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+env:
+  TF_VERSION: '1.10.0'
+  TF_VAR_aws_profile: ''
+  WORKING_DIRECTORY: infrastructure/dev
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      app_image: ${{ steps.image.outputs.app_image }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Resolve app_image
+        id: image
+        run: |
+          # Use the :latest tag from ECR. Image content is owned by the
+          # build-container workflow; deploy.yml triggers a rolling redeploy
+          # whenever a new :latest is pushed.
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          REGISTRY="${ACCOUNT}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+          echo "app_image=${REGISTRY}/${{ vars.ECR_REPOSITORY }}:latest" >> "$GITHUB_OUTPUT"
+
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+
+      - name: terraform init
+        run: terraform init -input=false
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+
+      - name: terraform validate
+        run: terraform validate -no-color
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+
+      - name: terraform plan
+        id: tfplan
+        env:
+          TF_VAR_app_image: ${{ steps.image.outputs.app_image }}
+        run: |
+          set -o pipefail
+          terraform plan -input=false -no-color -out=tfplan | tee plan.txt
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.WORKING_DIRECTORY }}/tfplan
+          retention-days: 7
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const planPath = path.join('${{ env.WORKING_DIRECTORY }}', 'plan.txt');
+            let plan = fs.readFileSync(planPath, 'utf8');
+
+            // GitHub comments cap around 65k chars; truncate liberally to fit.
+            const MAX = 60000;
+            if (plan.length > MAX) {
+              plan = plan.slice(0, MAX) + '\n\n... (plan truncated; download the tfplan artifact for the full output)';
+            }
+
+            const body = [
+              '### 🌍 Terraform Plan (infrastructure/dev)',
+              '',
+              '<details><summary>Click to expand the plan</summary>',
+              '',
+              '```diff',
+              plan,
+              '```',
+              '',
+              '</details>',
+              '',
+              `*Plan generated against \`app_image=${{ steps.image.outputs.app_image }}\`. Apply is gated by the \`production\` environment on merge to main.*`,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const previous = comments.find(c => c.user.type === 'Bot' && c.body.startsWith('### 🌍 Terraform Plan'));
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  apply:
+    name: Apply
+    runs-on: ubuntu-latest
+    needs: plan
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Requires a human reviewer per the GitHub Environment "production"
+    # configuration. Configure under Repo Settings → Environments.
+    environment: production
+    env:
+      TF_VAR_app_image: ${{ needs.plan.outputs.app_image }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.WORKING_DIRECTORY }}
+
+      - name: terraform init
+        run: terraform init -input=false
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+
+      - name: terraform apply
+        run: terraform apply -input=false -auto-approve tfplan
+        working-directory: ${{ env.WORKING_DIRECTORY }}
