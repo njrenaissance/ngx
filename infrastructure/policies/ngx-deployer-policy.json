@@ -106,23 +106,30 @@
             "Resource": "*"
         },
         {
-            "Sid": "IAMPermissions",
+            "Sid": "IAMReadPermissions",
+            "Effect": "Allow",
+            "Action": [
+                "iam:GetRole",
+                "iam:GetRolePolicy",
+                "iam:ListRolePolicies",
+                "iam:ListAttachedRolePolicies"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "IAMWritePermissions",
             "Effect": "Allow",
             "Action": [
                 "iam:PassRole",
-                "iam:GetRole",
                 "iam:CreateRole",
                 "iam:DeleteRole",
                 "iam:AttachRolePolicy",
                 "iam:DetachRolePolicy",
                 "iam:PutRolePolicy",
                 "iam:DeleteRolePolicy",
-                "iam:GetRolePolicy",
-                "iam:ListRolePolicies",
-                "iam:ListAttachedRolePolicies",
                 "iam:TagRole"
             ],
-            "Resource": "*"
+            "Resource": "arn:aws:iam::328926346833:role/forge-*"
         },
         {
             "Sid": "CloudWatchLogs",
@@ -140,72 +147,100 @@
             "Resource": "*"
         },
         {
-            "Sid": "ECRPermissions",
+            "Sid": "ECRReadPermissions",
             "Effect": "Allow",
             "Action": [
                 "ecr:GetAuthorizationToken",
                 "ecr:DescribeRepositories",
                 "ecr:DescribeImages",
-                "ecr:CreateRepository",
-                "ecr:DeleteRepository",
                 "ecr:BatchGetImage",
                 "ecr:GetDownloadUrlForLayer",
-                "ecr:TagResource",
-                "ecr:UntagResource",
                 "ecr:ListTagsForResource",
                 "ecr:BatchCheckLayerAvailability",
+                "ecr:GetLifecyclePolicy"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ECRWritePermissions",
+            "Effect": "Allow",
+            "Action": [
+                "ecr:CreateRepository",
+                "ecr:DeleteRepository",
+                "ecr:TagResource",
+                "ecr:UntagResource",
                 "ecr:PutImage",
                 "ecr:InitiateLayerUpload",
                 "ecr:UploadLayerPart",
                 "ecr:CompleteLayerUpload",
                 "ecr:PutLifecyclePolicy",
-                "ecr:GetLifecyclePolicy",
                 "ecr:PutImageScanningConfiguration",
                 "ecr:PutImageTagMutability"
+            ],
+            "Resource": "arn:aws:ecr:*:328926346833:repository/forge-*"
+        },
+        {
+            "Sid": "S3ReadPermissions",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetBucketVersioning",
+                "s3:GetBucketPublicAccessBlock",
+                "s3:GetEncryptionConfiguration",
+                "s3:GetBucketPolicy",
+                "s3:GetBucketLocation",
+                "s3:GetBucketTagging",
+                "s3:ListBucket",
+                "s3:GetObject"
             ],
             "Resource": "*"
         },
         {
-            "Sid": "S3Permissions",
+            "Sid": "S3BucketWritePermissions",
             "Effect": "Allow",
             "Action": [
                 "s3:CreateBucket",
                 "s3:DeleteBucket",
-                "s3:GetBucketVersioning",
                 "s3:PutBucketVersioning",
-                "s3:GetBucketPublicAccessBlock",
                 "s3:PutBucketPublicAccessBlock",
-                "s3:GetEncryptionConfiguration",
                 "s3:PutEncryptionConfiguration",
-                "s3:GetBucketPolicy",
                 "s3:PutBucketPolicy",
                 "s3:DeleteBucketPolicy",
-                "s3:GetBucketLocation",
-                "s3:ListBucket",
-                "s3:GetObject",
-                "s3:PutObject",
-                "s3:DeleteObject",
-                "s3:GetBucketTagging",
                 "s3:PutBucketTagging"
             ],
-            "Resource": "*"
+            "Resource": "arn:aws:s3:::forge-*"
         },
         {
-            "Sid": "DynamoDBPermissions",
+            "Sid": "S3ObjectWritePermissions",
             "Effect": "Allow",
             "Action": [
-                "dynamodb:CreateTable",
-                "dynamodb:DeleteTable",
+                "s3:PutObject",
+                "s3:DeleteObject"
+            ],
+            "Resource": "arn:aws:s3:::forge-*/*"
+        },
+        {
+            "Sid": "DynamoDBReadPermissions",
+            "Effect": "Allow",
+            "Action": [
                 "dynamodb:DescribeTable",
-                "dynamodb:GetItem",
-                "dynamodb:PutItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:TagResource",
                 "dynamodb:ListTagsOfResource",
                 "dynamodb:DescribeContinuousBackups",
                 "dynamodb:DescribeTimeToLive"
             ],
             "Resource": "*"
+        },
+        {
+            "Sid": "DynamoDBWritePermissions",
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:CreateTable",
+                "dynamodb:DeleteTable",
+                "dynamodb:GetItem",
+                "dynamodb:PutItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:TagResource"
+            ],
+            "Resource": "arn:aws:dynamodb:*:328926346833:table/forge-*"
         },
         {
             "Sid": "ServiceLinkedRoles",
