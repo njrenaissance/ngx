@@ -13,9 +13,13 @@ from pydantic_settings.sources import InitSettingsSource
 # (prefixed FORGE_) and an optional .env file override these per-field.
 #
 # Nested settings classes (database, celery) draw their defaults from the
-# matching nested dict here via _NestedDefaultsMixin. PASSWORD and the
-# Celery broker URLs default to empty strings so the process boots;
-# connect-time failures surface missing config.
+# matching nested dict here via the _build_customise_sources(...) helper
+# below. PASSWORD and the Celery broker URL default to empty strings so
+# the process boots; connect-time failures surface missing config.
+#
+# When adding a new nested BaseSettings class, also add its top-level key
+# to _NESTED_SETTINGS_KEYS so Settings.settings_customise_sources knows
+# to exclude its dict from the top-level baseline.
 DEFAULT_SETTINGS: dict[str, Any] = {
     "APP_NAME": "Forge",
     "ENVIRONMENT": "dev",
@@ -45,6 +49,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "TASK_SOFT_TIME_LIMIT": 1500,  # 25 min soft — leaves room for in-task cleanup
     },
 }
+
+# Top-level keys whose values are nested settings dicts (not Settings fields).
+# Each entry corresponds to a BaseSettings subclass with its own env-var prefix
+# and its own _build_customise_sources binding. Anything NOT in this set is
+# treated as a flat Settings field and flows into the top-level baseline.
+# Failing to add a new nested class here means its defaults dict would leak
+# into Settings as a stray field at construction time.
+_NESTED_SETTINGS_KEYS: frozenset[str] = frozenset({"database", "celery"})
 
 
 def _build_customise_sources(defaults_key: str):
@@ -88,6 +100,12 @@ class CelerySettings(BaseSettings):
 
     Baseline values live in DEFAULT_SETTINGS["celery"]. Env vars
     (FORGE_CELERY__BROKER_URL etc.) override them at runtime.
+
+    Direct construction note: `CelerySettings()` is wired to read its
+    baseline from DEFAULT_SETTINGS via _build_customise_sources. Bypassing
+    that path (e.g. instantiating a bare BaseSettings clone in a one-off
+    script) will raise ValidationError for missing fields. Always import
+    via `from forge.config import settings`.
     """
 
     model_config = SettingsConfigDict(
@@ -119,6 +137,12 @@ class DatabaseSettings(BaseSettings):
 
     Baseline values live in DEFAULT_SETTINGS["database"]. Env vars override
     them at runtime.
+
+    Direct construction note: `DatabaseSettings()` is wired to read its
+    baseline from DEFAULT_SETTINGS via _build_customise_sources. Bypassing
+    that path (e.g. instantiating a bare BaseSettings clone in a one-off
+    script) will raise ValidationError for missing fields. Always import
+    via `from forge.config import settings`.
     """
 
     model_config = SettingsConfigDict(
@@ -211,8 +235,11 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         # First tuple element has highest priority; DEFAULT_SETTINGS goes last.
-        # Only top-level keys flow in here — nested classes handle their own.
-        top_level_defaults = {k: v for k, v in DEFAULT_SETTINGS.items() if not isinstance(v, dict)}
+        # Only top-level keys flow in here — nested classes handle their own
+        # via _build_customise_sources. We explicitly exclude
+        # _NESTED_SETTINGS_KEYS rather than filtering on isinstance(v, dict)
+        # so a future non-dict baseline structure can't silently slip through.
+        top_level_defaults = {k: v for k, v in DEFAULT_SETTINGS.items() if k not in _NESTED_SETTINGS_KEYS}
         return (
             init_settings,
             env_settings,

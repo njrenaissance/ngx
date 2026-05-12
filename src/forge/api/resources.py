@@ -20,6 +20,7 @@ from forge.api.schemas.resources import (
 from forge.models.catalog import ResourceType, ResourceTypeTierConstraint, TierPolicy, TierRegionMember
 from forge.models.provisioning import ResourceRequest
 from forge.models.topology import LogicalRegion
+from forge.workers.broker import TaskBroker, get_task_broker
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ def create_resource(
     payload: dict[str, Any] = Body(...),
     auth: AuthContext = Depends(require_auth),
     session: Session = Depends(get_db_session),
+    broker: TaskBroker = Depends(get_task_broker),
 ) -> ResourceCreateResponse:
     if "team_id" in payload:
         raise HTTPException(
@@ -159,12 +161,12 @@ def create_resource(
     session.commit()
     session.refresh(rr)
 
-    # Local import — the celery app pulls broker settings at import time, and
-    # tests that don't need the broker should not pay that cost (and may run
-    # with FORGE_CELERY__BROKER_URL unset).
-    from forge.workers.broker import get_task_broker
-
-    get_task_broker().submit("provision_resource", kwargs={"resource_request_id": str(rr.id)})
+    task_id = broker.submit("provision_resource", kwargs={"resource_request_id": str(rr.id)})
+    # Log at INFO so the Celery task ID can be correlated with the
+    # resource_id in the worker log. A dedicated celery_task_id column on
+    # ResourceRequest is a separate follow-up if stronger correlation is
+    # needed (e.g. for revoke from the API).
+    logger.info("provision_resource enqueued: resource_id=%s celery_task_id=%s", rr.id, task_id)
 
     return ResourceCreateResponse(
         resource_id=rr.id,

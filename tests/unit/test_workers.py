@@ -35,7 +35,14 @@ def _mock_session_with_request(status: str = "pending") -> tuple[MagicMock, Magi
 
 
 def _run(session: MagicMock, rr_id: uuid.UUID) -> str:
-    """Invoke the task body synchronously with SyncSession patched."""
+    """Invoke the task body synchronously with SyncSession patched.
+
+    Note: `.run()` calls the wrapped Python function directly, bypassing
+    the Celery task envelope — no autoretry_for, no result backend
+    persistence, no acks_late semantics. When E.2/E.3 add retry policies
+    (e.g. `autoretry_for=(TerraformError,)`), those will need separate
+    coverage via a Celery-aware test harness or integration test.
+    """
     with patch.object(task_module, "SyncSession", return_value=session):
         return provision_resource.run(str(rr_id))
 
@@ -76,11 +83,22 @@ class TestProvisionResource:
         result = _run(session, uuid.uuid4())
         assert result == "not_found"
 
-    def test_unexpected_status_skipped(self) -> None:
-        """A row mid-provisioning is assumed held by another worker; skip."""
+    def test_provisioning_is_resumed(self) -> None:
+        """A row already in `provisioning` (worker crashed mid-flight) is resumed,
+        not skipped. Otherwise an acks_late redelivery would strand the row."""
         session, rr = _mock_session_with_request(status="provisioning")
         result = _run(session, rr.id)
-        assert result == "provisioning"
+        assert result == "provisioned"
+        assert rr.status == "provisioned"
+        # Only one commit on the resume path — pending->provisioning is already
+        # done, so we only commit the terminal transition.
+        assert session.commit.call_count == 1
+
+    def test_non_resumable_status_skipped(self) -> None:
+        """Statuses outside our lifecycle (e.g. destroy_*) are refused."""
+        session, rr = _mock_session_with_request(status="destroying")
+        result = _run(session, rr.id)
+        assert result == "destroying"
         session.commit.assert_not_called()
 
 

@@ -49,14 +49,21 @@ def provision_resource(resource_request_id: str) -> str:
             logger.info("provision_resource: %s already in terminal status %s", rr_id, rr.status)
             return str(rr.status)
 
-        if rr.status != "pending":
-            # Unexpected mid-state — another worker likely holds it. Skip
-            # rather than racing.
-            logger.warning("provision_resource: %s in unexpected status %s; skipping", rr_id, rr.status)
+        # `provisioning` is also a valid re-entry state: a worker may have
+        # crashed after flipping pending -> provisioning but before
+        # finishing the work. Treat it as resume, not skip, so the row
+        # can't get stranded. E.2/E.3 will replace this stub with
+        # workspace materialization + real terraform, both of which must
+        # be designed to be safe to re-run on a partially-applied row.
+        if rr.status not in {"pending", "provisioning"}:
+            # Other states (destroy_requested, destroying, destroyed) are
+            # not our lifecycle; refuse to drive them forward.
+            logger.warning("provision_resource: %s in non-resumable status %s; skipping", rr_id, rr.status)
             return str(rr.status)
 
-        rr.status = "provisioning"
-        session.commit()
+        if rr.status == "pending":
+            rr.status = "provisioning"
+            session.commit()
 
         # E.1 stub: no Terraform yet. Future PRs replace this with
         # workspace materialization (E.2) and plan-then-apply (E.3).

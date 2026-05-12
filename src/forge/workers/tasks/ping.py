@@ -3,7 +3,7 @@
 from celery import shared_task  # type: ignore[import-untyped]
 
 
-@shared_task(name="forge.ping")  # type: ignore[untyped-decorator]
+@shared_task(name="forge.ping")
 def ping() -> str:
     """Return 'pong' — used by integration tests and health checks."""
     return "pong"

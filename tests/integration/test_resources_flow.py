@@ -55,10 +55,7 @@ def test_post_then_get_resource(forge_url: str) -> None:
     status_body = status_resp.json()
     assert status_body["status"] in _LIFECYCLE_STATES
     assert status_body["resource_id"] == resource_id
-
-    # The list filter still works for any forward state — the worker output
-    # is eventually `provisioned`, so filter by it once we've waited.
-    _ = httpx.get(f"{forge_url}/v1/resources", headers=AUTH)
+    # End-to-end polling is exercised in test_provisioning_flow_wiring.py.
 
 
 def test_post_with_team_id_in_body_returns_400(forge_url: str) -> None:
