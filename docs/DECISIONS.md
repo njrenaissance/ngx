@@ -477,7 +477,7 @@ encryption) and `redis://` locally.
 
 **Date:** 2026-05-12
 **Status:** Accepted
-**Originating issue:** [#54](https://github.com/njrenaissance/2026-05-12/issues/54)
+**Originating issue:** [#54](https://github.com/njrenaissance/ngx/issues/54)
 
 ### Context
 
@@ -644,3 +644,212 @@ today, but the policy attachment point for #51 lives here).
   S3 permissions to both the api and the worker. Wrong shape.
 - **Split execution role too.** No security gain (both containers need
   the same prestart capabilities) and doubles the maintenance surface.
+
+---
+
+## ADR-013 — Single-region deployment (`us-east-1` only)
+
+**Date:** 2026-05-12
+**Status:** Accepted
+**Originating context:** project bootstrap; single cloud environment
+
+### Context
+
+A production-grade deployment might span multiple AWS regions for
+disaster recovery — a global Aurora cluster with per-region writers, a
+Route53 failover record, multi-region KMS key (MRK), and Secrets Manager
+secret replication. The challenge window is a two-week demo with no
+real availability SLA.
+
+### Decision
+
+Deploy to **`us-east-1` only**. No cross-region snapshot copy, no
+cross-region read replicas, no Route53 failover routing.
+
+### Why
+
+- The cost of multi-region roughly doubles the idle bill per added
+  region (~$90–100/mo for two regions vs. ~$45–50/mo for one).
+- The RTO/RPO target for the demo is "if `us-east-1` blips, the demo
+  is temporarily unavailable" — acceptable for a 2-week interview window.
+- Documenting the path to multi-region is the deliverable; building
+  it is not.
+
+### Consequences
+
+- The infrastructure is confined to `us-east-1`. The `var.aws_region`
+  default in `infrastructure/dev/variables.tf` is hardcoded to
+  `us-east-1`.
+- To go multi-region for DR: replace `aws_rds_cluster` with
+  `aws_rds_global_cluster` + per-region cluster instances; provision
+  duplicate VPC / subnets / NAT / SG stacks via provider aliases;
+  replicate the KMS CMK as a multi-region key; enable Secrets Manager
+  multi-region replication; front the writer endpoint with a Route53
+  failover record + health checks. Estimated cost: ~2× per added region.
+
+### Alternatives considered
+
+- **Multi-region active-active.** Complexity and cost not justified for
+  a demo with a single developer and no real traffic.
+- **Multi-region passive DR (warm standby).** Better RTO but still
+  doubles cost for a demo window. Defer to a real production hardening
+  pass.
+
+---
+
+## ADR-014 — Single-AZ Aurora writer (POC posture)
+
+**Date:** 2026-05-12
+**Status:** Accepted
+**Originating context:** `infrastructure/modules/database`
+
+### Context
+
+Aurora Serverless v2 supports Multi-AZ with automatic failover: a writer
+instance in one AZ and a reader in a second, with ~30 s automatic failover
+on writer failure. Adding a reader roughly doubles the Aurora cost
+(~$45/mo extra at the 0.5 ACU minimum).
+
+### Decision
+
+Run a **single writer instance** in one AZ. No reader instance. No
+automatic AZ failover.
+
+### Why
+
+- Cost roughly doubles for a code-challenge demo that has no real
+  availability target. The RPO/RTO for the demo is "if `us-east-1a`
+  blips, the demo dies" — acceptable for a 2-week interview window.
+- The Aurora DB subnet group already spans two AZs, so enabling Multi-AZ
+  later is a one-variable change (`multi_az = true` on the cluster +
+  one new `aws_rds_cluster_instance` resource block). No infrastructure
+  redesign needed.
+
+### Consequences
+
+- A writer failure in `us-east-1a` requires manual intervention (promote
+  a replica — but there is none) or a cluster restore from snapshot.
+- Engine-neutral module surface: adding a reader endpoint is an output
+  addition to the database module, not a refactor.
+
+### Alternatives considered
+
+- **Multi-AZ from day one.** Adds ~$45/mo for a demo window. Defer.
+- **Aurora Global Database.** Cross-region writer promotion, ~1 min RTO.
+  Overkill for a single-region POC.
+
+---
+
+## ADR-015 — Single AWS environment named `dev`
+
+**Date:** 2026-05-12
+**Status:** Accepted
+**Originating context:** `infrastructure/dev/` directory naming
+
+### Context
+
+The `infrastructure/dev/` directory is the only Terraform root module that
+CI manages. There is no separate staging or production stack. However, the
+name `dev` implies it is not the live service — which it is.
+
+### Decision
+
+Keep the `dev` directory name. Treat it as **the live cloud environment
+that backs the demo** for the duration of the challenge.
+
+### Why
+
+- PRs and issues already reference `infrastructure/dev/` paths. Renaming
+  to `infrastructure/aws/` or `infrastructure/cloud/` would churn those
+  references for no functional change.
+- The production-safety knobs that would differ between dev and prod
+  (`deletion_protection`, `skip_final_snapshot`, backup retention,
+  Multi-AZ) are controlled by a single `var.production_safety` boolean.
+  Defaults are `false` during iteration so the stack can be torn down and
+  rebuilt cheaply; flip to `true` via tfvars before the demo
+  (tracked by issue [#20](https://github.com/njrenaissance/ngx/issues/20)).
+- Reviewers should read `dev` as "the only cloud environment" and not
+  infer a missing staging tier.
+
+### Consequences
+
+- The CI pipeline targets `infrastructure/dev/` exclusively. A second
+  environment would require a new root module and a parallel workflow.
+- `var.production_safety` gates deletion protection and backup retention.
+  Check its value in `terraform.tfvars` before a demo or audit.
+
+### Alternatives considered
+
+- **Rename to `infrastructure/aws/`.** Cleaner semantics but noisy
+  rename diff with no functional benefit. Defer to when a real second
+  environment lands.
+- **Create a separate `infrastructure/prod/`.** Correct long-term shape
+  but doubles the Terraform maintenance surface for a single-developer
+  challenge with one real environment.
+
+---
+
+## ADR-016 — Split secret-vs-env-var credential injection for ECS tasks
+
+**Date:** 2026-05-12
+**Status:** Accepted
+**Originating context:** `infrastructure/modules/ecs_service` + `modules/database`
+
+### Context
+
+ECS Fargate task definitions support two ways to pass configuration to
+containers: `environment[]` (plain text, visible in task-definition
+describe output) and `secrets[]` (fetched from Secrets Manager or SSM
+Parameter Store at task launch, decrypted by the execution role, injected
+as env vars without ever appearing in plaintext in the task definition).
+
+The Aurora master credentials are stored in Secrets Manager as a JSON
+object `{username, password}`. All other database connection parameters
+(host, port, database name, username, SSL mode) are non-sensitive.
+
+### Decision
+
+Inject the Aurora master **password only** via `secrets[]`. Inject
+everything else — host, port, database name, username, SSL mode, and all
+Celery/app config — as plain `environment[]` entries.
+
+### Why
+
+- **Rate-limit economics.** Secrets Manager has a per-second API rate
+  limit. Fetching every connection parameter as a secret would multiply
+  the number of `GetSecretValue` calls at task launch proportionally.
+  Only the password is actually sensitive.
+- **Operator visibility.** `aws ecs describe-task-definition` reveals
+  plain env vars, letting operators confirm connection config without
+  needing `secretsmanager:GetSecretValue` permission. Useful in incident
+  response.
+- **Trust boundary.** The task role (assumed by the running container)
+  has zero IAM permissions in the current implementation. Even if the
+  container is compromised, the attacker can read `$FORGE_DATABASE__PASSWORD`
+  from the process environment, but cannot call any AWS API to exfiltrate
+  further data. Future service-level grants (S3 for managed-resources
+  buckets — issue [#51](https://github.com/njrenaissance/ngx/issues/51))
+  attach to the task role, keeping the execution role narrowly scoped to
+  "start the task" forever.
+
+### Consequences
+
+- The execution role needs `secretsmanager:GetSecretValue` on the DB
+  master secret ARN and `kms:Decrypt` on the CMK. Both are granted by a
+  resource-scoped inline policy on the execution role
+  (`ecs_execution_db_secret` in `modules/ecs_service/main.tf`).
+- Any new credential added to the task (e.g. the Celery AUTH token if
+  issue #51 adds ElastiCache AUTH) must decide: is it secret enough to
+  warrant `secrets[]` injection? If yes, the execution role needs a new
+  `GetSecretValue` grant and the task definition gets a new `secrets[]`
+  entry. If no, add it to `environment[]`.
+
+### Alternatives considered
+
+- **All credentials via `secrets[]`.** Stronger defence-in-depth but
+  multiplies Secrets Manager API calls and kills operator visibility.
+  Not justified when the non-password fields are genuinely non-sensitive.
+- **AWS Systems Manager Parameter Store instead of Secrets Manager.**
+  Cheaper per-call pricing, but the Aurora master secret is already in
+  Secrets Manager (provisioned by the database module). Using two
+  credential stores for one task adds operational complexity.
