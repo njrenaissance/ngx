@@ -21,19 +21,19 @@ Workspace id is the same key minus the trailing /terraform.tfstate, with
 from __future__ import annotations
 
 import json
-import logging
 import shutil
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from forge.config import settings
+from forge.logging import get_logger
 from forge.models.catalog import ResourceType, TierPolicy
 from forge.models.provisioning import Deployment, DeploymentAz, ResourceRequest
 from forge.models.topology import LogicalRegion, RegionAzMap
 from forge.workers.tier_topology import select_az_assignments
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 WORKSPACE_ROOT = Path("/tmp/forge-workspaces")  # noqa: S108 — POC; ephemeral by design
 

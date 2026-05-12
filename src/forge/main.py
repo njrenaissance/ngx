@@ -8,6 +8,7 @@ from forge.api.health import router as health_router
 from forge.api.me import router as me_router
 from forge.api.resources import router as resources_router
 from forge.config import settings
+from forge.logging import configure_root_logger
 
 
 def _custom_openapi(application: FastAPI):  # type: ignore[return]
@@ -28,6 +29,7 @@ def _custom_openapi(application: FastAPI):  # type: ignore[return]
 
 
 def get_app() -> FastAPI:
+    configure_root_logger()
     application = FastAPI(
         title=f"{settings.APP_NAME} — Infrastructure Provisioning Service",
         version=__version__,

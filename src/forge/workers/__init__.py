@@ -7,8 +7,10 @@ must be imported in `forge/workers/tasks/__init__.py` so its
 """
 
 from celery import Celery  # type: ignore[import-untyped]
+from celery.signals import worker_process_init  # type: ignore[import-untyped]
 
 from forge.config import settings
+from forge.logging import configure_root_logger
 
 celery_app = Celery("forge")
 
@@ -41,6 +43,24 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
+    # We own the root logger; prevent Celery from replacing our JSON handler.
+    worker_hijack_root_logger=False,
 )
+
+configure_root_logger()
+
+
+@worker_process_init.connect(dispatch_uid="forge.logging.reattach")
+def _on_worker_process_init(**_kwargs: object) -> None:
+    """Re-attach JSON log handler in each forked pool child.
+
+    Called via worker_process_init signal after Celery forks a pool child.
+    The fork inherits the parent's logging handler chain. Unlike OTel's
+    OTLP exporter (which has a stale HTTP connection pool post-fork), a
+    plain StreamHandler is fork-safe — but we re-run configure_root_logger()
+    to guarantee correct state in the child regardless of Celery internals.
+    """
+    configure_root_logger()
+
 
 celery_app.autodiscover_tasks(["forge.workers"])

@@ -1,12 +1,11 @@
-import logging
-
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from forge.config import settings
+from forge.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Sync engine — used by Alembic migrations and the seed script.
 # The async engine (asyncpg) will be added here when async API endpoints land.

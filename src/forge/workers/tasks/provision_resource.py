@@ -6,16 +6,16 @@ yet), persists DEPLOYMENT + DEPLOYMENT_AZ, then flips to `provisioned`.
 Real plan-then-apply arrives in E.3.
 """
 
-import logging
 import uuid
 
 from celery import shared_task  # type: ignore[import-untyped]
 
 from forge.db import SyncSession
+from forge.logging import get_logger
 from forge.models.provisioning import ResourceRequest
 from forge.workers.workspace import WorkspaceMaterializationError, materialize_workspace
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @shared_task(name="forge.provision_resource")

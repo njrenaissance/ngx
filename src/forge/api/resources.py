@@ -1,4 +1,3 @@
-import logging
 import uuid
 from typing import Any, Literal
 
@@ -17,12 +16,13 @@ from forge.api.schemas.resources import (
     ResourceListItem,
     ResourceStatusResponse,
 )
+from forge.logging import get_logger
 from forge.models.catalog import ResourceType, ResourceTypeTierConstraint, TierPolicy, TierRegionMember
 from forge.models.provisioning import ResourceRequest
 from forge.models.topology import LogicalRegion
 from forge.workers.broker import TaskBroker, get_task_broker
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/resources", tags=["resources"])
 
