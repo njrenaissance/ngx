@@ -1,21 +1,50 @@
 """provision_resource Celery task — async engine entry point.
 
-E.2 scope: flips RESOURCE_REQUEST.status from `pending` to `provisioning`,
-materializes a per-request Terraform workspace on disk (no terraform run
-yet), persists DEPLOYMENT + DEPLOYMENT_AZ, then flips to `provisioned`.
-Real plan-then-apply arrives in E.3.
+E.3 scope: drives a ResourceRequest through the full plan-then-apply
+lifecycle. Status transitions:
+
+    ResourceRequest:  pending -> provisioning -> provisioned (or failed)
+    Deployment:       pending -> planned -> applying -> applied (or failed)
+    ApplyJob:         queued  -> running -> succeeded (or failed)
+
+SPEC Appendix B rule 4 (no apply without a saved plan) is enforced inside
+TerraformRunner. Rule 1 (no cloud coordinates in API responses / logs) is
+enforced inside TerraformRunner._sanitize and applied to every stdout/stderr
+returned to this task. APPLY_JOB.log_sanitized is the audit trail of what
+the worker did and is safe to expose via /v1/resources/{id}/logs in the
+POC; outputs go into DEPLOYMENT.outputs_encrypted as plaintext bytes
+(SPEC §8.3 — encryption is a hardening follow-up).
+
+Failure handling: any TerraformExecutionError / PlanRequiredError /
+WorkspaceMaterializationError is captured into APPLY_JOB.log_sanitized +
+DEPLOYMENT.last_error + DEPLOYMENT.status="failed" + RR.status="failed",
+then the task returns "failed" cleanly. We do NOT re-raise — Celery would
+retry the task, and APPLY_JOB is the audit trail for failed runs.
 """
 
+from __future__ import annotations
+
+import json
 import uuid
+from datetime import datetime, timezone
 
 from celery import shared_task  # type: ignore[import-untyped]
 
 from forge.db import SyncSession
 from forge.logging import get_logger
-from forge.models.provisioning import ResourceRequest
+from forge.models.provisioning import ApplyJob, Deployment, ResourceRequest
+from forge.workers.terraform_runner import (
+    PlanRequiredError,
+    TerraformExecutionError,
+    TerraformRunner,
+)
 from forge.workers.workspace import WorkspaceMaterializationError, materialize_workspace
 
 logger = get_logger(__name__)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 @shared_task(name="forge.provision_resource")
@@ -53,10 +82,10 @@ def provision_resource(resource_request_id: str) -> str:
 
         # `provisioning` is also a valid re-entry state: a worker may have
         # crashed after flipping pending -> provisioning but before
-        # finishing the work. Treat it as resume, not skip, so the row
-        # can't get stranded. E.2/E.3 will replace this stub with
-        # workspace materialization + real terraform, both of which must
-        # be designed to be safe to re-run on a partially-applied row.
+        # finishing the work. Treat as resume — workspace materializer is
+        # idempotent (upserts on tf_state_key), as is plan/apply against
+        # the saved tfstate. A resumed run gets a NEW ApplyJob row so
+        # attempt_count grows and the audit trail stays honest.
         if rr.status not in {"pending", "provisioning"}:
             # Other states (destroy_requested, destroying, destroyed) are
             # not our lifecycle; refuse to drive them forward.
@@ -68,21 +97,100 @@ def provision_resource(resource_request_id: str) -> str:
             rr.status = "provisioning"
             session.commit()
 
-        # E.2: materialize the on-disk Terraform workspace and persist
-        # DEPLOYMENT + DEPLOYMENT_AZ rows. Still no `terraform` invocation —
-        # that arrives in E.3. WorkspaceMaterializationError represents a
-        # structural mismatch (config keys don't match terraform_variable_map,
-        # missing package on disk, etc.) — retrying won't help, so we flip
-        # straight to `failed`.
+        # ─── Materialize workspace ────────────────────────────────────────
+        # WorkspaceMaterializationError is a structural mismatch — retrying
+        # won't help. Flip RR to failed and return without an APPLY_JOB row
+        # (the failure happened before we got far enough to decide which
+        # deployment to attach a job to).
         try:
-            materialize_workspace(session, rr)
+            workdir = materialize_workspace(session, rr)
         except WorkspaceMaterializationError as exc:
             logger.error("materialize_workspace failed", extra={**log_ctx, "error": str(exc)})
             rr.status = "failed"
             session.commit()
             return str(rr.status)
 
-        rr.status = "provisioned"
+        # The deployment row was just upserted by materialize_workspace.
+        # Re-read by tf_state_key — re-entry safe and avoids relying on
+        # a stale local reference if materialize_workspace was a no-op.
+        deployment = session.query(Deployment).filter(Deployment.resource_request_id == rr.id).first()
+        if deployment is None:
+            # Should never happen — materialize_workspace just wrote it.
+            # Treat as a structural failure rather than a crash.
+            logger.error("deployment row missing after materialize", extra=log_ctx)
+            rr.status = "failed"
+            session.commit()
+            return str(rr.status)
+
+        # ─── ApplyJob: queued -> running ──────────────────────────────────
+        # attempt_count starts at the count of prior jobs + 1 so a resumed
+        # run is visible as attempt 2 in the audit trail.
+        prior_attempts = session.query(ApplyJob).filter(ApplyJob.deployment_id == deployment.id).count()
+        apply_job = ApplyJob(
+            deployment_id=deployment.id,
+            operation="apply",
+            status="queued",
+            attempt_count=prior_attempts + 1,
+            enqueued_at=_now(),
+        )
+        session.add(apply_job)
         session.commit()
-        logger.info("provisioned", extra={**log_ctx, "status": "provisioned"})
-        return str(rr.status)
+        apply_job.status = "running"
+        apply_job.started_at = _now()
+        session.commit()
+
+        # ─── Plan-then-apply ──────────────────────────────────────────────
+        runner = TerraformRunner()
+        log_chunks: list[str] = []
+        try:
+            init_run = runner.init(workdir)
+            log_chunks.append(f"$ terraform init\n{init_run.stdout}")
+
+            plan_path = runner.plan(workdir)
+            # Plan stdout is captured via the runner's _run() side effect
+            # only on failure; on success we don't have a handle to it from
+            # the public plan() method. Note the plan path for the audit log.
+            log_chunks.append(f"$ terraform plan -out=tfplan\nPlan saved to {plan_path.name}")
+            deployment.status = "planned"
+            session.commit()
+
+            deployment.status = "applying"
+            session.commit()
+            outputs = runner.apply(workdir, plan_path)
+            log_chunks.append("$ terraform apply tfplan\nApply complete.")
+
+            deployment.status = "applied"
+            # Plaintext bytes in the POC per SPEC §8.3 — column is bytea so
+            # the encryption upgrade is field-only, not schema-changing.
+            deployment.outputs_encrypted = json.dumps(outputs, sort_keys=True).encode("utf-8")
+            apply_job.log_sanitized = "\n\n".join(log_chunks)
+            apply_job.status = "succeeded"
+            apply_job.completed_at = _now()
+            deployment.provisioned_at = _now()
+            rr.status = "provisioned"
+            session.commit()
+
+            logger.info("provisioned", extra={**log_ctx, "deployment_id": str(deployment.id)})
+            return "provisioned"
+
+        except (TerraformExecutionError, PlanRequiredError) as exc:
+            # Both error types carry already-sanitized text. The error
+            # itself goes in last_error; the cumulative log (init/plan/apply
+            # output up to the failure) goes in log_sanitized.
+            sanitized = getattr(exc, "sanitized_stderr", str(exc))
+            stage = getattr(exc, "stage", "plan")
+            log_chunks.append(f"$ terraform {stage} (failed)\n{sanitized}")
+
+            deployment.status = "failed"
+            deployment.last_error = sanitized
+            apply_job.log_sanitized = "\n\n".join(log_chunks)
+            apply_job.status = "failed"
+            apply_job.completed_at = _now()
+            rr.status = "failed"
+            session.commit()
+
+            logger.error(
+                "terraform failed",
+                extra={**log_ctx, "stage": stage, "deployment_id": str(deployment.id)},
+            )
+            return "failed"
