@@ -3,16 +3,16 @@
 [![CI Pipeline](https://github.com/njrenaissance/ngx/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/njrenaissance/ngx/actions/workflows/ci.yml)
 [![Deploy ECS Service](https://github.com/njrenaissance/ngx/actions/workflows/deploy.yml/badge.svg?branch=main)](https://github.com/njrenaissance/ngx/actions/workflows/deploy.yml)
 
-Forge is a small platform-engineering service that accepts validated requests
-to provision AWS resources, queues them for asynchronous execution, and runs
+Forge is a platform-engineering service that accepts validated requests to
+provision AWS resources, queues them for asynchronous execution, and runs
 the actual provisioning through Terraform. It is the deliverable for the NGX
 Senior Platform Engineer code challenge.
 
-The first PR (this one) ships the foundation: a minimal FastAPI service with
-health endpoints, the full Docker/Compose local-dev stack, the AWS
-infrastructure (VPC, ALB, ECS Fargate, ECR), and the CI/CD pipeline that
-gets the service live on AWS. Subsequent PRs add the request lifecycle, the
-Celery worker, the Terraform runner, and the policy engine.
+Forge accepts validated AWS provisioning requests over a FastAPI control
+plane, persists them to Aurora Postgres, and dispatches them to a Celery
+worker pool over ElastiCache Redis. The worker invokes Terraform to apply
+changes against AWS. The API and worker run as separate ECS Fargate tasks
+behind a shared ALB.
 
 - **Repo**: `njrenaissance/ngx`
 - **Application package**: `src/forge/`
@@ -20,88 +20,130 @@ Celery worker, the Terraform runner, and the policy engine.
 
 ---
 
+## Live demo
+
+The service is deployed and reachable:
+
+| Endpoint | URL |
+|---|---|
+| Liveness | [http://forge-dev-alb-1175990339.us-east-1.elb.amazonaws.com/livez](http://forge-dev-alb-1175990339.us-east-1.elb.amazonaws.com/livez) |
+| API docs | [http://forge-dev-alb-1175990339.us-east-1.elb.amazonaws.com/docs](http://forge-dev-alb-1175990339.us-east-1.elb.amazonaws.com/docs) |
+
+Reviewers can hit these directly — no local setup required.
+
+---
+
 ## Architecture at a glance
 
 See [`docs/diagrams/NGX_Networkinig.drawio`](docs/diagrams/NGX_Networkinig.drawio)
-for the network topology. The service runs as a single Fargate task behind an
-ALB; egress flows through a single NAT gateway in `us-east-1a`. Persistence
-(Aurora) and the worker queue (Redis/Celery) land in PR 2.
+for the full network topology. Egress flows through a single NAT gateway
+in `us-east-1a`.
 
-```
+```text
               ┌──────────┐
-   Internet → │   ALB    │ (forge-dev-alb, HTTP :80)
+   Internet → │   ALB    │  (forge-dev-alb :80)
               └────┬─────┘
-                   │
                    ▼
+              ┌──────────────────┐        ┌──────────────────┐
+              │ API ECS Fargate  │──SQL──▶│  Aurora Postgres │
+              │ uvicorn :8000    │        └──────────────────┘
+              └────────┬─────────┘
+                       │ enqueue (rediss://)
+                       ▼
               ┌──────────────────┐
-              │  ECS Fargate     │ (forge-dev cluster + service)
-              │  forge:<version> │ (image pulled from ECR)
-              │  uvicorn :8000   │
+              │ ElastiCache      │
+              │ Redis (broker)   │
+              └────────┬─────────┘
+                       │ consume
+                       ▼
+              ┌──────────────────┐
+              │ Worker ECS       │──▶ Terraform ──▶ AWS
+              │ Fargate (celery) │
               └──────────────────┘
 ```
 
 The Forge container is built on every push to `main` and published to
-Amazon ECR (`<account>.dkr.ecr.<region>.amazonaws.com/forge-<env>`). ECS
-Fargate pulls from there.
+Amazon ECR (`<account>.dkr.ecr.<region>.amazonaws.com/forge-<env>`). Both
+the API and worker tasks pull from there — same image, different entrypoint.
 
 ---
 
-## Local development
+## Getting Started
 
-Requirements:
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
-- Docker Desktop or any Compose v2 runtime
-- (Optional) Terraform 1.10+ if you intend to validate the AWS stack locally
-
-### Run the unit tests
+### Clone and set up
 
 ```sh
+git clone https://github.com/njrenaissance/ngx.git
+cd ngx
 uv sync
+uv run pre-commit install --hook-type pre-commit --hook-type pre-push
+```
+
+Requirements: [uv](https://docs.astral.sh/uv/) and Docker Desktop (or any
+Compose v2 runtime). Terraform 1.10+ is optional — only needed if you
+intend to validate the AWS stack locally.
+
+### Run unit tests
+
+```sh
 uv run pytest -m unit -v
 ```
 
-### Run the service with hot reload
+### Run the service locally (no database)
 
 ```sh
 uv run python -m forge
 ```
 
 By default Forge listens on `0.0.0.0:8000`. Override via environment
-variables (all prefixed `FORGE_`):
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `FORGE_APP_NAME` | `Forge` | Service identity in `/livez` response |
-| `FORGE_ENVIRONMENT` | `dev` | Free-form environment label |
-| `FORGE_LOG_LEVEL` | `INFO` | uvicorn + app log level |
-| `FORGE_HOST` | `0.0.0.0` | Bind address |
-| `FORGE_PORT` | `8000` | Bind port (both host and container) |
-| `FORGE_RELOAD` | `false` | `true` enables uvicorn auto-reload (dev only) |
-
-Copy `.env.example` to `.env` and edit; both `uv run python -m forge` and
-Docker Compose will pick the values up.
-
-### Run the full stack with Postgres
+variables (see [Configuration](#configuration) below).
 
 ```sh
-docker compose up -d
 curl http://localhost:8000/livez
 ```
 
-#### Database migrations and seed data
+### Run the full stack with Postgres and Redis
 
-Bring up Postgres first, then run Alembic and the seed script:
+`docker-compose.yml` brings up Postgres, Redis, the API service, and the
+Celery worker. Copy the example env file and edit it to configure the stack:
+
+> **Local vs. cloud data layer:**
+> `docker-compose.yml` uses vanilla Postgres and Redis for local development.
+> The cloud environment (`infrastructure/dev/`) replaces these with Aurora
+> Serverless v2 (Postgres-compatible) and ElastiCache for Redis. The
+> application code and Celery configuration are identical in both environments
+> — only the `FORGE_DATABASE__*` and `FORGE_CELERY__BROKER_URL` values differ.
 
 ```sh
-docker compose up postgres -d
-uv run alembic upgrade head
-uv run python db/seed.py
+cp .env.example .env
+# Edit .env — set FORGE_DATABASE__PASSWORD at minimum
 ```
 
-**Customising the seed data** — the seed script reads `db/seed.json` if it exists,
-otherwise it falls back to `db/seed.json.example` (the committed dev defaults with
-known API keys). To change passwords, add teams, or add users without touching the
-committed example:
+Then start the stack, passing your `.env` file explicitly:
+
+```sh
+docker compose --env-file .env up -d
+curl http://localhost:8000/livez
+```
+
+All environment variables are documented in [Configuration](#configuration).
+The `.env` file is gitignored — never commit it.
+
+#### Database migrations and seed data
+
+Bring up Postgres first, then run Alembic and the seed script. Both commands
+read the database URL from `.env`:
+
+```sh
+docker compose --env-file .env up postgres -d
+uv run --env-file .env alembic upgrade head
+uv run --env-file .env python db/seed.py
+```
+
+**Customising the seed data** — the seed script reads `db/seed.json` if it
+exists, otherwise it falls back to `db/seed.json.example` (the committed
+dev defaults with known API keys). To change passwords, add teams, or add
+users without touching the committed example:
 
 ```sh
 cp db/seed.json.example db/seed.json
@@ -109,31 +151,10 @@ cp db/seed.json.example db/seed.json
 uv run python db/seed.py
 ```
 
-`db/seed.json` is gitignored. Never commit it — use `seed.json.example` for
-defaults that the whole team can share.
+`db/seed.json` is gitignored. Never commit it — use `seed.json.example`
+for defaults that the whole team can share.
 
-**Database environment variables** (all prefixed `FORGE_DATABASE__`):
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `FORGE_DATABASE__HOST` | `localhost` | Postgres hostname |
-| `FORGE_DATABASE__PORT` | `5432` | Postgres port |
-| `FORGE_DATABASE__NAME` | `forge` | Database name |
-| `FORGE_DATABASE__USER` | `forge` | Database user |
-| `FORGE_DATABASE__PASSWORD` | *(required)* | Set in `.env` — never committed |
-| `FORGE_DATABASE__SCHEMA` | `public` | PostgreSQL search_path namespace |
-
-### Endpoints
-
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/` | 307 redirect to `/docs` (Swagger UI) |
-| `GET` | `/livez` | Liveness probe; returns `{status, message, version}` |
-| `GET` | `/readyz` | Readiness probe; ALB target-group health check |
-| `GET` | `/docs` | OpenAPI Swagger UI |
-| `GET` | `/openapi.json` | OpenAPI 3 schema |
-
-### Run the integration tests (end-to-end against a live container)
+### Run the integration tests
 
 ```sh
 uv run pytest -m integration -v
@@ -144,29 +165,119 @@ to respond, runs the suite, and tears the stack down on session exit.
 
 ---
 
-## GitHub Repository Setup
+## Configuration
 
-The CI workflows in [`.github/workflows/`](.github/workflows/) depend on the
-following repository configuration. If you fork or reproduce the project,
-configure these once under **Settings → Secrets and variables → Actions**.
+### Top-level (`FORGE_*`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FORGE_APP_NAME` | `Forge` | Service identity in `/livez` response |
+| `FORGE_ENVIRONMENT` | `dev` | Free-form environment label |
+| `FORGE_LOG_LEVEL` | `INFO` | uvicorn + app log level |
+| `FORGE_HOST` | `0.0.0.0` | Bind address |
+| `FORGE_PORT` | `8000` | Bind port (both host and container) |
+| `FORGE_RELOAD` | `false` | `true` enables uvicorn auto-reload (dev only) |
+| `FORGE_REQUEST_TIMEOUT` | `30` | Seconds before uvicorn cancels a slow handler — keep below ALB idle timeout (60 s) |
+| `FORGE_KEEPALIVE_TIMEOUT` | `2` | Seconds uvicorn keeps idle connections alive — keep below ALB idle timeout |
+| `FORGE_SHUTDOWN_TIMEOUT` | `25` | Seconds to drain in-flight requests on SIGTERM — keep below ECS `stopTimeout` (30 s) |
+
+### Database (`FORGE_DATABASE__*`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FORGE_DATABASE__HOST` | `localhost` | Postgres hostname |
+| `FORGE_DATABASE__PORT` | `5432` | Postgres port |
+| `FORGE_DATABASE__NAME` | `forge` | Database name |
+| `FORGE_DATABASE__USER` | `forge` | Database user |
+| `FORGE_DATABASE__PASSWORD` | *(required)* | Set in `.env` — never committed |
+| `FORGE_DATABASE__SSL_MODE` | `disable` | psycopg2 `sslmode` — set `require` in cloud |
+| `FORGE_DATABASE__SCHEMA` | `public` | PostgreSQL `search_path` namespace |
+| `FORGE_DATABASE__CONNECT_TIMEOUT` | `10` | Seconds to wait for TCP connect to the DB host |
+| `FORGE_DATABASE__POOL_TIMEOUT` | `30` | Seconds a caller waits when the connection pool is exhausted |
+| `FORGE_DATABASE__POOL_RECYCLE` | `1800` | Connection recycle interval (seconds) — keep below Aurora idle timeout |
+
+### Celery / broker (`FORGE_CELERY__*`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FORGE_CELERY__BROKER_URL` | *(required)* | Redis broker URL — `redis://localhost:6379/0` locally, `rediss://<elasticache-endpoint>:6379/0` in cloud |
+| `FORGE_CELERY__TASK_DEFAULT_QUEUE` | `provisioning` | Queue name — must match the `-Q` flag on the worker's `celery` command |
+| `FORGE_CELERY__TASK_TIME_LIMIT` | `1800` | Hard kill limit in seconds (30 min) — covers a slow `terraform apply` |
+| `FORGE_CELERY__TASK_SOFT_TIME_LIMIT` | `1500` | Soft limit in seconds (25 min) — raises `SoftTimeLimitExceeded` so the task can clean up before the hard kill |
+
+---
+
+## API endpoints
+
+All `/v1/*` routes require an `X-API-Key` header.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/` | 307 redirect to `/docs` (Swagger UI) |
+| `GET` | `/livez` | Liveness probe; returns `{status, message, version}` |
+| `GET` | `/readyz` | Readiness probe; ALB target-group health check |
+| `GET` | `/docs` | OpenAPI Swagger UI |
+| `GET` | `/openapi.json` | OpenAPI 3 schema |
+| `POST` | `/v1/resources` | Submit a provisioning request — returns 202 with `resource_id` and `poll_url` |
+| `GET` | `/v1/resources` | List the authenticated team's resource requests (paginated) |
+| `GET` | `/v1/resources/{resource_id}` | Resource detail |
+| `GET` | `/v1/resources/{resource_id}/status` | Status poll endpoint (referenced by `poll_url`) |
+| `GET` | `/v1/catalog/regions` | List available logical regions |
+| `GET` | `/v1/catalog/tiers` | List available tier policies |
+| `GET` | `/v1/catalog/resource-types` | List active resource types (latest version only) |
+| `GET` | `/v1/catalog/resource-types/{name}` | Resource type detail; accepts optional `?tier=` to merge tier schema overrides |
+| `GET` | `/v1/me` | Authenticated caller identity and team membership |
+
+---
+
+## Project structure
+
+```text
+ngx/
+├── alembic/                # Database migration revisions (fix-forward only — see docs/DECISIONS.md)
+├── db/                     # Seed scripts and example seed data
+├── docs/                   # ADRs, SPEC, PLAN, ERD, diagrams
+├── infrastructure/         # Terraform: bootstrap, dev composition, modules, policies
+├── src/forge/              # FastAPI app, Celery workers, models, config
+├── tests/                  # Unit (-m unit) and integration (-m integration) suites
+├── docker-compose.yml      # Local API + Postgres + Redis + worker stack
+├── Dockerfile              # API + worker image (same image, different entrypoint)
+├── pyproject.toml          # uv project manifest; SemVer source of truth
+└── uv.lock                 # Deterministic dependency lockfile
+```
+
+| Path | Purpose |
+|---|---|
+| `src/forge/` | FastAPI application: routers, Pydantic schemas, SQLAlchemy models, Celery app and tasks, Pydantic-settings config |
+| `infrastructure/` | All Terraform — `bootstrap/` (run-once state backend), `dev/` (CI-managed environment), `modules/` (reusable child modules), `policies/` (IAM policy JSON) |
+| `alembic/` | Fix-forward Alembic revisions. `downgrade()` is always `pass`. See [ADR-004](docs/DECISIONS.md#adr-004--alembic-migrations-are-fix-forward-only) |
+| `db/` | `seed.py` + `seed.json.example` for local dev data |
+| `docs/` | [`DECISIONS.md`](docs/DECISIONS.md), [`SPEC.md`](docs/SPEC.md), [`PLAN.md`](docs/PLAN.md), [`ERD.md`](docs/ERD.md), [`diagrams/`](docs/diagrams/) |
+| `tests/` | `tests/unit/` (no I/O, run with `pytest -m unit`) and `tests/integration/` (docker-compose stack, run with `pytest -m integration`) |
+
+---
+
+## GitHub repository setup
+
+The CI workflows in [`.github/workflows/`](.github/workflows/) depend on
+the following repository configuration. Configure these once under
+**Settings → Secrets and variables → Actions**.
 
 ### Secrets
 
 | Secret | Value | Used by |
 |---|---|---|
-| `AWS_ACCESS_KEY_ID` | Access key for the `ngx-deployer` IAM user | `terraform.yml`, `build-container.yml`, `deploy.yml` |
+| `AWS_ACCESS_KEY_ID` | Access key for the legacy `ngx-deployer` IAM user | kept for historical reference; active workflows use OIDC |
 | `AWS_SECRET_ACCESS_KEY` | Paired secret key | same |
 
-> Note: the project deliberately uses long-lived access keys for now to
-> reduce setup friction. A migration to GitHub OIDC with a scoped IAM role
-> is planned for a follow-up PR and would replace both secrets above with
-> a single `AWS_ROLE_ARN`.
+> The deploy pipeline uses GitHub OIDC (see [ADR-006](docs/DECISIONS.md#adr-006--github-oidc-for-ci-deploy-authentication)) — no long-lived access keys are needed for new workflows. The legacy keys above are retained for reference only.
 
 ### Variables
 
 | Variable | Recommended value | Used by | Notes |
 |---|---|---|---|
 | `AWS_REGION` | `us-east-1` | all workflows | Matches the `var.aws_region` default in Terraform |
+| `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::<account-id>:role/github-actions-ngx` | all workflows | OIDC-assumable deploy role; see One-time AWS bootstrap below |
 | `ECR_REPOSITORY` | `forge-dev` | `build-container.yml`, `terraform.yml` | Matches `aws_ecr_repository.forge.name` |
 | `ECS_CLUSTER` | `forge-dev` | `deploy.yml` | Matches `aws_ecs_cluster.main.name` |
 | `ECS_SERVICE` | `forge-dev` | `deploy.yml` | Matches `aws_ecs_service.app.name` |
@@ -184,13 +295,148 @@ The `terraform.yml` `apply` job targets this environment, so every
 
 ---
 
+## One-time AWS bootstrap
+
+The steps below create the infrastructure that CI depends on but cannot
+create for itself (it would be circular — CI needs credentials to run, but
+credentials live in AWS). Run these once from a terminal with an AWS
+administrator principal.
+
+> **Account-specific ARNs:** several commands and policy documents below
+> contain the account ID `328926346833`. Replace this with your own AWS
+> account ID if you are deploying to a different environment. The same
+> applies to any ARN-scoped resources in the policy JSON files under
+> `infrastructure/policies/`.
+
+### Terraform state backend
+
+```sh
+terraform -chdir=infrastructure/bootstrap init
+terraform -chdir=infrastructure/bootstrap apply
+```
+
+This creates the `forge-tfstate-<account-id>` S3 bucket and
+`forge-tfstate-lock` DynamoDB table. See
+[`infrastructure/bootstrap/README.md`](infrastructure/bootstrap/README.md)
+for full details. **Run once, ever. Not in CI.**
+
+After the bootstrap:
+
+1. Note the `state_bucket_name` output and verify it matches the bucket
+   name hardcoded in `infrastructure/dev/backend.tf`.
+2. The generated `terraform.tfstate` in `infrastructure/bootstrap/` is
+   gitignored — keep an encrypted backup outside the repo.
+
+### GitHub OIDC identity provider and deploy role
+
+All CI workflows authenticate to AWS via GitHub OIDC — no long-lived access
+keys. See [ADR-006](docs/DECISIONS.md#adr-006--github-oidc-for-ci-deploy-authentication)
+for the rationale.
+
+**Step 1 — Create the OIDC identity provider in AWS:**
+
+```sh
+aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com \
+  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1
+```
+
+If the provider already exists in the account, AWS returns
+`EntityAlreadyExistsException`. Verify with:
+
+```sh
+aws iam list-open-id-connect-providers
+```
+
+**Step 2 — Create the deploy IAM role** (`github-actions-ngx`) with a trust
+policy scoped to this repo:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::<account-id>:oidc-provider/token.actions.githubusercontent.com"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+      },
+      "StringLike": {
+        "token.actions.githubusercontent.com:sub": "repo:njrenaissance/ngx:*"
+      }
+    }
+  }]
+}
+```
+
+Save this JSON to `trust-policy.json`, then:
+
+```sh
+aws iam create-role \
+  --role-name github-actions-ngx \
+  --assume-role-policy-document file://trust-policy.json
+```
+
+**Step 3 — Attach both deployer policy documents to the role:**
+
+```sh
+aws iam put-role-policy \
+  --role-name github-actions-ngx \
+  --policy-name ngx-deployer-platform \
+  --policy-document file://infrastructure/policies/ngx-deployer-platform-policy.json
+
+aws iam put-role-policy \
+  --role-name github-actions-ngx \
+  --policy-name ngx-deployer-data \
+  --policy-document file://infrastructure/policies/ngx-deployer-data-policy.json
+
+aws iam put-role-policy \
+  --role-name github-actions-ngx \
+  --policy-name ngx-deployer-elasticache \
+  --policy-document file://infrastructure/policies/ngx-deployer-elasticache-policy.json
+```
+
+The policies are inline (not managed) because each approached the 6,144
+non-whitespace-character limit for AWS managed policies. Updates to any JSON
+file require re-running the corresponding `put-role-policy` command before
+merge.
+
+**Step 4 — Set the `AWS_DEPLOY_ROLE_ARN` GitHub Actions variable:**
+
+Under **Settings → Secrets and variables → Actions → Variables**, set
+`AWS_DEPLOY_ROLE_ARN` to
+`arn:aws:iam::<account-id>:role/github-actions-ngx`.
+
+**Step 5 — Re-run any failed workflow** — it should now assume the role
+successfully via OIDC.
+
+### AWS service-linked roles
+
+AWS auto-creates service-linked roles on first use of a service, provided
+the deployer has `iam:CreateServiceLinkedRole` scoped to that service. The
+checked-in policy documents grant this for:
+
+| Service-linked role | Granted by |
+|---|---|
+| `AWSServiceRoleForElasticLoadBalancing` | `ServiceLinkedRoles` sid — `ngx-deployer-platform-policy.json` |
+| `AWSServiceRoleForECS` | `ServiceLinkedRoles` sid — `ngx-deployer-platform-policy.json` |
+| `AWSServiceRoleForRDS` | `RDSServiceLinkedRole` sid — `ngx-deployer-data-policy.json` |
+| `AWSServiceRoleForElastiCache` | `ElastiCacheServiceLinkedRole` sid — `ngx-deployer-elasticache-policy.json` |
+
+---
+
 ## CI/CD pipeline
 
 Four GitHub Actions workflows orchestrate the delivery:
 
 ### 1. `format-lint.yml` + `unit-tests.yml` + `ci.yml`
 
-Already present. Runs on every PR against main:
+Runs on every PR against main:
+
 - `ruff format --check` and `ruff check` against `src/` and `tests/`
 - `mypy src/`
 - `pytest -m unit` with coverage
@@ -227,13 +473,9 @@ Triggers on PR (`plan` only) and push to `main` (`plan` then `apply`).
 | `apply` | main only | Requires `production` environment approval, then `terraform apply tfplan` |
 
 `fmt`, `validate`, and `plan` run as steps in the same job to avoid paying
-runner-spinup overhead twice. `apply` is a separate job *only* because GitHub
-Environment approval gates are job-scoped — there's no way to pause a single
-step waiting for a reviewer.
-
-The plan is generated against `app_image = ECR:latest`. Terraform never
-hand-rolls an image-version bump; it always references `:latest` and lets
-the deploy workflow force ECS to pick up new content.
+runner-spinup overhead twice. `apply` is a separate job only because GitHub
+Environment approval gates are job-scoped — there is no way to pause a
+single step waiting for a reviewer.
 
 ### 4. `deploy.yml`
 
@@ -254,21 +496,21 @@ new tasks are healthy.
             ▼
    ┌─ Push to main ────────────────────────────────────────┐
    │  build-container.yml → pushes :latest + :version to    │
-   │                        GHCR and ECR                    │
+   │                        ECR                             │
    │  terraform.yml: plan + apply (production gate ⏸)       │
    │  deploy.yml: aws ecs update-service                    │
    │              wait services-stable                      │
    └────────────────────────────────────────────────────────┘
             │
             ▼
-   curl http://<alb-dns>/livez  → 200 OK
+   curl http://forge-dev-alb-1175990339.us-east-1.elb.amazonaws.com/livez  → 200 OK
 ```
 
 ---
 
 ## Infrastructure layout
 
-```
+```text
 infrastructure/
 ├── bootstrap/          # Terraform state backend — RUN ONCE manually
 │   ├── README.md       # Operating procedure
@@ -276,21 +518,29 @@ infrastructure/
 │   └── ...
 ├── dev/                # The dev environment stack — CI-managed
 │   ├── backend.tf      # S3 backend with use_lockfile = true
-│   ├── main.tf         # VPC, ALB, ECS, ECR, IAM, CloudWatch
+│   ├── main.tf         # VPC, ALB, ECS, ECR, IAM, CloudWatch, Aurora, ElastiCache
 │   ├── providers.tf
 │   ├── variables.tf
 │   └── terraform.tfvars.example
+├── modules/            # Reusable child modules, each with terraform test suites
+│   ├── alb/            # Application Load Balancer + listener + target group
+│   ├── cache/          # ElastiCache for Redis (Celery broker)
+│   ├── database/       # Aurora Serverless v2 (Postgres)
+│   ├── ecr/            # ECR repository + lifecycle policy
+│   ├── ecs_service/    # ECS cluster + API task + worker task + IAM roles
+│   ├── kms/            # Customer-managed KMS key (CMK) + alias
+│   └── network/        # VPC, subnets, NAT gateway, shared app security group
 └── policies/
-    └── ngx-deployer-policy.json   # IAM policy for the ngx-deployer user
+    ├── ngx-deployer-platform-policy.json   # ECS, ALB, ECR, IAM, CloudWatch
+    └── ngx-deployer-data-policy.json       # S3, DynamoDB, KMS, Secrets Manager, RDS
 ```
 
 ### First-time setup (one-time)
 
-If you're starting from a fresh AWS account:
+If you are starting from a fresh AWS account:
 
-1. **Create the `ngx-deployer` IAM user** (or rename to taste) and attach
-   the policy from
-   [`infrastructure/policies/ngx-deployer-policy.json`](infrastructure/policies/ngx-deployer-policy.json).
+1. **Create the OIDC provider and deploy role** as described in
+   [One-time AWS bootstrap](#one-time-aws-bootstrap) above.
 2. **Run the bootstrap** to create the Terraform state backend:
 
    ```sh
@@ -316,6 +566,44 @@ merge. The pipeline does the rest.
 
 ---
 
+## IAM roles and policies
+
+### Deploy-time (out-of-band, GitHub Actions)
+
+The `github-actions-ngx` role is assumed via OIDC by every CI workflow —
+see [ADR-006](docs/DECISIONS.md#adr-006--github-oidc-for-ci-deploy-authentication)
+and [One-time AWS bootstrap](#one-time-aws-bootstrap).
+
+Attached inline policies (in [`infrastructure/policies/`](infrastructure/policies/)):
+
+| Policy file | Coverage |
+|---|---|
+| [`ngx-deployer-platform-policy.json`](infrastructure/policies/ngx-deployer-platform-policy.json) | VPC, ALB, ECS, IAM (scoped to `forge-*`), CloudWatch Logs, ECR, ELB + ECS service-linked-role creation |
+| [`ngx-deployer-data-policy.json`](infrastructure/policies/ngx-deployer-data-policy.json) | S3, DynamoDB, KMS, Secrets Manager, RDS, RDS service-linked-role creation |
+| [`ngx-deployer-elasticache-policy.json`](infrastructure/policies/ngx-deployer-elasticache-policy.json) | ElastiCache replication group, subnet group, parameter group, KMS grants, ElastiCache service-linked-role creation |
+
+The policies are split because each was approaching the 6,144
+non-whitespace-character cap for AWS managed policies; separate files also
+map cleanly to domain review boundaries.
+
+**Updates to either file require re-running `aws iam put-role-policy` on
+the `github-actions-ngx` role before the PR merges.** Call this out
+explicitly in the PR description.
+
+### Runtime (Terraform-managed)
+
+All three roles are defined in
+[`infrastructure/modules/ecs_service/main.tf`](infrastructure/modules/ecs_service/main.tf)
+and named `forge-<env>-<suffix>`:
+
+| Role name | Assumed by | Purpose |
+|---|---|---|
+| `forge-dev-ecs-execution-role` | ECS orchestrator | Pulls image from ECR, fetches `FORGE_DATABASE__PASSWORD` from Secrets Manager, decrypts with CMK, writes CloudWatch logs. Shared between API and worker tasks. |
+| `forge-dev-ecs-task-role` | API container | Zero attached policies today — the API has no direct AWS API calls. Reserved as the attachment point for future API-only grants. |
+| `forge-dev-ecs-worker-task-role` | Worker container | Zero attached policies today. Split from the API role per [ADR-012](docs/DECISIONS.md#adr-012--worker-iam-role-split-shared-execution-role-separate-task-role) to isolate future S3 permissions (#51) from the API blast radius. |
+
+---
+
 ## Engineering conventions
 
 See [`CLAUDE.md`](CLAUDE.md) for the working agreement. Key rules:
@@ -328,3 +616,14 @@ See [`CLAUDE.md`](CLAUDE.md) for the working agreement. Key rules:
 - SemVer in `pyproject.toml`; bump on any `src/forge/**` change
 - Diagrams under `docs/diagrams/` must stay in sync with the Terraform stack
 - Bootstrap is run-once-ever and is NOT touched by CI
+
+---
+
+## Further reading
+
+- [docs/SPEC.md](docs/SPEC.md) — product specification
+- [docs/PLAN.md](docs/PLAN.md) — delivery plan
+- [docs/ERD.md](docs/ERD.md) — data model
+- [docs/DECISIONS.md](docs/DECISIONS.md) — architectural decision records (ADR-001 through ADR-016)
+- [docs/diagrams/NGX_Networkinig.drawio](docs/diagrams/NGX_Networkinig.drawio) — editable network topology source
+- [CLAUDE.md](CLAUDE.md) — engineering working agreement

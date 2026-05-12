@@ -1,0 +1,26 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ElasticacheManageResources",
+            "Effect": "Allow",
+            "Action": "elasticache:*",
+            "Resource": "arn:aws:elasticache:us-east-1:328926346833:*"
+        },
+        {
+            "Sid": "ElasticacheDescribeActionsWithoutResourceARN",
+            "Effect": "Allow",
+            "Action": [
+                "elasticache:DescribeCacheSubnetGroups",
+                "elasticache:DescribeCacheParameterGroups",
+                "elasticache:DescribeCacheParameters",
+                "elasticache:DescribeReplicationGroups",
+                "elasticache:DescribeCacheClusters",
+                "elasticache:DescribeEngineDefaultParameters",
+                "elasticache:DescribeServiceUpdates",
+                "elasticache:ListTagsForResource"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
