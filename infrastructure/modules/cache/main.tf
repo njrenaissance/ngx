@@ -23,7 +23,7 @@ resource "aws_elasticache_subnet_group" "main" {
 
 resource "aws_security_group" "cache" {
   name        = "${var.name_prefix}-cache-sg"
-  description = "Elasticache cluster ingress 6379 from app SG only; no egress."
+  description = "Elasticache cluster ingress 6379 from app SG only; no application egress rules."
   vpc_id      = var.vpc_id
 
   ingress {
@@ -34,8 +34,13 @@ resource "aws_security_group" "cache" {
     security_groups = [var.app_security_group_id]
   }
 
-  # No egress rules — the cache never initiates outbound traffic. All
-  # replication/management traffic is internal to AWS.
+  # No application egress rules — the cache never initiates outbound on
+  # its own (replication/management is internal to AWS and uses Elasticache's
+  # own service-controlled egress). Note: omitting the `egress` block does
+  # NOT lock down outbound — AWS attaches a default allow-all egress rule
+  # when no `egress` is specified. The cache doesn't initiate outbound so
+  # the practical difference is nil, but be aware if you grep for "egress"
+  # expecting an explicit deny.
 
   tags = { Name = "${var.name_prefix}-cache-sg" }
 }
@@ -49,6 +54,9 @@ resource "aws_elasticache_parameter_group" "main" {
 }
 
 resource "aws_elasticache_replication_group" "main" {
+  # checkov:skip=CKV_AWS_31: AUTH token intentionally omitted for the POC.
+  # See ADR-011 and the auth_token line below — transit encryption + SG-scoped
+  # 6379 ingress is the documented POC posture. Revisit in staging.
   replication_group_id = "${var.name_prefix}-cache"
   description          = "Forge ${var.name_prefix} Celery broker (single-node POC)"
 
@@ -76,13 +84,16 @@ resource "aws_elasticache_replication_group" "main" {
   transit_encryption_enabled = true
   kms_key_id                 = var.kms_key_arn
 
-  # No AUTH token for POC — see header comment. checkov:skip=CKV_AWS_31
-  # explicitly suppresses the AUTH-required finding; revisit in staging.
+  # No AUTH token for POC. Explicit `= null` (rather than omitting the
+  # argument) so a future reader doesn't wonder whether AUTH was just
+  # forgotten — the checkov:skip on the resource block confirms it's
+  # deliberate. See ADR-011 for rationale.
   auth_token = null
 
   # dev convenience: apply parameter/engine changes immediately rather than
-  # waiting for the maintenance window. Flip to false alongside production_safety
-  # if/when this module is used outside dev.
+  # waiting for the maintenance window. Today this module is dev-only; if
+  # it gets reused for staging/prod, add a `production_safety` variable
+  # and gate this flag (mirroring modules/database's pattern).
   apply_immediately = true
 
   tags = { Name = "${var.name_prefix}-cache" }

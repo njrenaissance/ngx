@@ -4,7 +4,7 @@ output "primary_endpoint_address" {
 }
 
 output "primary_port" {
-  description = "Primary endpoint port. Always 6379 today, but emitted from the resource attribute so a future port change can't drift."
+  description = "Primary endpoint port (hardcoded to 6379 in this module). Sourced from the resource attribute rather than a literal so the output stays honest if the port hardcode is ever lifted to a variable."
   value       = aws_elasticache_replication_group.main.port
 }
 

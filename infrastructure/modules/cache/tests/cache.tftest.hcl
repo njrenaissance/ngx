@@ -44,10 +44,12 @@ run "transit_encryption_enabled" {
 run "at_rest_encryption_enabled" {
   command = plan
 
-  # Note: the AWS provider exposes at_rest_encryption_enabled as a string
-  # ("true"/"false") during plan, unlike transit_encryption_enabled which
-  # is a bool. tostring() normalises so the assertion passes regardless of
-  # which type the provider returns in a future release.
+  # Observed behavior on aws provider 5.x at the time of writing (2026-05-12):
+  # at_rest_encryption_enabled is exposed as a string ("true"/"false") during
+  # plan-mode test execution, while transit_encryption_enabled is a bool.
+  # tostring() normalises so the assertion is provider-version-tolerant — if
+  # AWS-provider 6.x ever fixes the inconsistency, tostring(true) == "true"
+  # still holds.
   assert {
     condition     = tostring(aws_elasticache_replication_group.main.at_rest_encryption_enabled) == "true"
     error_message = "Elasticache replication group must have at-rest encryption enabled. Rubric requirement (Option-1)."

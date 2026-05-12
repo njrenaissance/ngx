@@ -102,10 +102,14 @@ moved {
 #   2. module.ecs_service → module.network (PR #54, this PR — cache↔ecs_service
 #      cycle break; see ADR-010)
 #
-# Terraform requires each destination to have only one `from`, so we chain
-# the moves: any state file at the root address gets relayed through the
-# ecs_service address before landing at the final network address. The
-# intermediate hop is a no-op for state files that already passed it.
+# Terraform requires each destination to have only one `from`, so we keep
+# both hops in code. The second block is the one that fires for this repo's
+# current state files (which are all at the module.ecs_service address per
+# PR #13); the first block exists for completeness in case any state file
+# was created before #13 and never advanced past the root address. That
+# scenario is not present in our own dev state — the plan we ran on
+# 2026-05-12 confirmed only the second block fired and the SG retained its
+# physical id.
 moved {
   from = aws_security_group.app
   to   = module.ecs_service.aws_security_group.app

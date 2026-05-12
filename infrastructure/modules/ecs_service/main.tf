@@ -284,8 +284,12 @@ resource "aws_ecs_task_definition" "worker" {
     #   --loglevel=info
     #   --concurrency=2          (two Greenlet workers per task; the task only
     #                             gets 256 CPU units so two is the practical cap)
-    #   -Q provisioning          (must match FORGE_CELERY__TASK_DEFAULT_QUEUE
-    #                             in forge.config — see #53)
+    #   -Q provisioning          (must match DEFAULT_SETTINGS["celery"]["TASK_DEFAULT_QUEUE"]
+    #                             in src/forge/config.py. There is no enforced
+    #                             single source of truth — the invariant is
+    #                             cross-file and breaking it means tasks pile
+    #                             up in the broker with no consumer. See the
+    #                             matching comment in forge.config.)
     command = ["celery", "-A", "forge.workers", "worker", "--loglevel=info", "--concurrency=2", "-Q", "provisioning"]
 
     environment = local.shared_environment
