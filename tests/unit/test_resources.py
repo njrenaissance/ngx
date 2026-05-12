@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from forge.api.auth import AuthContext, require_auth
 from forge.api.deps import get_db_session
 from forge.main import get_app
-from forge.models.catalog import ResourceType, ResourceTypeTierConstraint, TierPolicy
+from forge.models.catalog import ResourceType, ResourceTypeTierConstraint, TierPolicy, TierRegionMember
 from forge.models.identity import AppUser, Team
 from forge.models.provisioning import ResourceRequest
 from forge.models.topology import LogicalRegion
@@ -96,9 +96,12 @@ def _session_for_create(
     region: MagicMock | None = None,
     constraint: MagicMock | None = None,
     captured: list | None = None,
+    tier_region_eligible: bool = True,
 ) -> MagicMock:
     """Build a MagicMock session that handles the POST handler's query chain."""
     session = MagicMock()
+
+    eligible_member = MagicMock(spec=TierRegionMember) if tier_region_eligible else None
 
     def query_side_effect(model):
         q = MagicMock()
@@ -109,6 +112,8 @@ def _session_for_create(
             q.filter.return_value.first.return_value = tier
         elif model is LogicalRegion:
             q.filter.return_value.first.return_value = region
+        elif model is TierRegionMember:
+            q.filter_by.return_value.first.return_value = eligible_member
         elif model is ResourceTypeTierConstraint:
             q.filter_by.return_value.first.return_value = constraint
         return q
@@ -228,6 +233,12 @@ class TestCreateResource:
         resp = _client_with_session(session).post("/v1/resources", json={**VALID_BODY, "config": {"size": "small"}})
         assert resp.status_code == 422
 
+    def test_ineligible_tier_region_combination_returns_404(self):
+        session = _session_for_create(_make_resource_type(), _make_tier(), _make_region(), tier_region_eligible=False)
+        resp = _client_with_session(session).post("/v1/resources", json=VALID_BODY)
+        assert resp.status_code == 404
+        assert "not available for tier" in resp.json()["detail"]
+
     def test_returns_401_without_auth(self):
         app = get_app()
         resp = TestClient(app).post("/v1/resources", json=VALID_BODY)
@@ -237,17 +248,26 @@ class TestCreateResource:
 # ── GET /v1/resources ─────────────────────────────────────────────────────────
 
 
+def _list_session(rows: list = [], total: int | None = None) -> MagicMock:
+    """Build a MagicMock session for the list endpoint (handles joinedload options chain)."""
+    session = MagicMock()
+    q = MagicMock()
+    session.query.return_value = q
+    q.options.return_value = q
+    q.filter.return_value = q
+    q.join.return_value = q
+    q.order_by.return_value = q
+    q.offset.return_value = q
+    q.limit.return_value = q
+    q.count.return_value = total if total is not None else len(rows)
+    q.all.return_value = rows
+    return session
+
+
 class TestListResources:
     def test_list_filters_by_team_id(self):
-        session = MagicMock()
+        session = _list_session()
         q = session.query.return_value
-        q.filter.return_value = q
-        q.join.return_value = q
-        q.order_by.return_value = q
-        q.offset.return_value = q
-        q.limit.return_value = q
-        q.count.return_value = 0
-        q.all.return_value = []
 
         _client_with_session(session).get("/v1/resources")
 
@@ -257,14 +277,7 @@ class TestListResources:
 
     def test_returns_pagination_envelope(self):
         rr = _make_resource_request()
-        session = MagicMock()
-        q = session.query.return_value
-        q.filter.return_value = q
-        q.order_by.return_value = q
-        q.offset.return_value = q
-        q.limit.return_value = q
-        q.count.return_value = 1
-        q.all.return_value = [rr]
+        session = _list_session(rows=[rr], total=1)
 
         resp = _client_with_session(session).get("/v1/resources")
         assert resp.status_code == 200
@@ -275,13 +288,18 @@ class TestListResources:
         assert len(body["items"]) == 1
         assert body["items"][0]["resource_id"] == str(rr.id)
 
+    def test_invalid_status_returns_422(self):
+        session = _list_session()
+        resp = _client_with_session(session).get("/v1/resources?status=pendng")
+        assert resp.status_code == 422
+
     def test_limit_above_max_returns_422(self):
-        session = MagicMock()
+        session = _list_session()
         resp = _client_with_session(session).get("/v1/resources?limit=300")
         assert resp.status_code == 422
 
     def test_page_below_one_returns_422(self):
-        session = MagicMock()
+        session = _list_session()
         resp = _client_with_session(session).get("/v1/resources?page=0")
         assert resp.status_code == 422
 

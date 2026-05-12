@@ -1,10 +1,11 @@
+import logging
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 import jsonschema
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import ValidationError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from forge.api.auth import AuthContext, require_auth
 from forge.api.deps import get_db_session
@@ -16,11 +17,15 @@ from forge.api.schemas.resources import (
     ResourceListItem,
     ResourceStatusResponse,
 )
-from forge.models.catalog import ResourceType, ResourceTypeTierConstraint, TierPolicy
+from forge.models.catalog import ResourceType, ResourceTypeTierConstraint, TierPolicy, TierRegionMember
 from forge.models.provisioning import ResourceRequest
 from forge.models.topology import LogicalRegion
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/v1/resources", tags=["resources"])
+
+ResourceStatus = Literal["pending", "provisioning", "active", "failed", "destroyed"]
 
 
 def _to_detail(rr: ResourceRequest) -> ResourceDetailResponse:
@@ -62,7 +67,7 @@ def _to_list_item(rr: ResourceRequest) -> ResourceListItem:
     responses={
         400: {"description": "team_id supplied by client (server-assigned only)"},
         401: {"description": "Invalid or missing API key"},
-        404: {"description": "Unknown resource_type, tier, or logical_region"},
+        404: {"description": "Unknown resource_type, tier, logical_region, or tier↔region combination not in catalog"},
         422: {"description": "Validation error (schema or config)"},
     },
 )
@@ -98,6 +103,8 @@ def create_resource(
     if tier is None:
         raise HTTPException(status_code=404, detail=f"Tier '{req.tier}' not found")
 
+    # platform_assigned_only regions are silently 404'd — same information-hiding
+    # pattern as cross-team resource isolation (no existence acknowledgement).
     region = (
         session.query(LogicalRegion)
         .filter(
@@ -110,19 +117,31 @@ def create_resource(
     if region is None:
         raise HTTPException(status_code=404, detail=f"Logical region '{req.logical_region}' not found")
 
+    # Enforce catalog-defined tier↔region eligibility. A tier only permits the
+    # regions explicitly listed in TierRegionMember — an unlisted combination is
+    # a business-rule violation, not just a missing row.
+    eligible = session.query(TierRegionMember).filter_by(tier_policy_id=tier.id, logical_region_id=region.id).first()
+    if eligible is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Region '{req.logical_region}' is not available for tier '{req.tier}'",
+        )
+
     schema = rt.base_config_schema
     constraint = (
         session.query(ResourceTypeTierConstraint).filter_by(resource_type_id=rt.id, tier_policy_id=tier.id).first()
     )
     if constraint is not None:
-        # Shallow merge matches the catalog endpoint contract; constraint keys
-        # replace base keys wholesale (see api/catalog.py:107-110).
+        # Shallow merge: constraint keys replace base keys wholesale (see api/catalog.py).
         schema = {**schema, **constraint.config_schema_override}
 
     try:
         jsonschema.validate(req.config, schema)
     except jsonschema.ValidationError as e:
         raise HTTPException(status_code=422, detail=f"config validation failed: {e.message}") from e
+    except jsonschema.SchemaError as e:
+        logger.error("Malformed config schema for resource_type=%s tier=%s: %s", req.resource_type, req.tier, e)
+        raise HTTPException(status_code=500, detail="Internal error: malformed resource type schema") from e
 
     rr = ResourceRequest(
         team_id=auth.team_id,
@@ -154,7 +173,7 @@ def create_resource(
     responses={401: {"description": "Invalid or missing API key"}},
 )
 def list_resources(
-    status_filter: str | None = Query(None, alias="status", max_length=32),
+    status_filter: ResourceStatus | None = Query(None, alias="status"),
     resource_type: str | None = Query(None, max_length=64),
     owner_id: uuid.UUID | None = Query(None),
     pagination: tuple[int, int] = Depends(page_params),
@@ -162,12 +181,23 @@ def list_resources(
     session: Session = Depends(get_db_session),
 ) -> Page[ResourceListItem]:
     page, limit = pagination
-    q = session.query(ResourceRequest).filter(ResourceRequest.team_id == auth.team_id)
+    q = (
+        session.query(ResourceRequest)
+        .options(
+            joinedload(ResourceRequest.resource_type),
+            joinedload(ResourceRequest.tier_policy),
+            joinedload(ResourceRequest.logical_region),
+        )
+        .filter(ResourceRequest.team_id == auth.team_id)
+    )
     if status_filter is not None:
         q = q.filter(ResourceRequest.status == status_filter)
     if resource_type is not None:
+        # Join constrains to active types only; historical rows for a now-inactive
+        # type name will not appear (soft-deleted types are excluded by design).
         q = q.join(ResourceType, ResourceRequest.resource_type_id == ResourceType.id).filter(
-            ResourceType.name == resource_type
+            ResourceType.name == resource_type,
+            ResourceType.active.is_(True),
         )
     if owner_id is not None:
         # Cross-team owner_ids return 0 rows silently — the team_id filter above
