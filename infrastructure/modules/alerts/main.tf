@@ -59,11 +59,11 @@ resource "aws_sns_topic_subscription" "email" {
 # ── ALB alarms ────────────────────────────────────────────────────────────────
 
 resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
-  alarm_name          = "${var.name_prefix}-alb-5xx-high"
-  alarm_description   = "ALB target 5XX count exceeds ${var.alb_5xx_threshold} in a 5-minute window. Investigate ECS task logs."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-alb-5xx-high"
+  alarm_description = "ALB target 5XX count exceeds ${var.alb_5xx_threshold} in a 5-minute window. Investigate ECS task logs."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
   namespace           = "AWS/ApplicationELB"
   metric_name         = "HTTPCode_Target_5XX_Count"
@@ -79,11 +79,11 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "alb_p95_response_time" {
-  alarm_name          = "${var.name_prefix}-alb-p95-latency-high"
-  alarm_description   = "ALB p95 target response time exceeded ${var.alb_p95_response_time_threshold}s. Check ECS task CPU/memory and downstream dependencies."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-alb-p95-latency-high"
+  alarm_description = "ALB p95 target response time exceeded ${var.alb_p95_response_time_threshold}s. Check ECS task CPU/memory and downstream dependencies."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
   namespace           = "AWS/ApplicationELB"
   metric_name         = "TargetResponseTime"
@@ -101,14 +101,14 @@ resource "aws_cloudwatch_metric_alarm" "alb_p95_response_time" {
 # ── ECS alarms (API service) ──────────────────────────────────────────────────
 
 resource "aws_cloudwatch_metric_alarm" "ecs_api_cpu" {
-  alarm_name          = "${var.name_prefix}-ecs-api-cpu-high"
-  alarm_description   = "ECS API service CPU utilization exceeded ${var.ecs_cpu_threshold}% for 10 minutes. Consider scaling out."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-ecs-api-cpu-high"
+  alarm_description = "ECS API service CPU utilization exceeded ${var.ecs_cpu_threshold}% for 10 minutes. Consider scaling out."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
-  namespace           = "AWS/ECS"
-  metric_name         = "CPUUtilization"
+  namespace   = "AWS/ECS"
+  metric_name = "CPUUtilization"
   dimensions = {
     ClusterName = var.ecs_cluster_name
     ServiceName = var.ecs_api_service_name
@@ -124,14 +124,14 @@ resource "aws_cloudwatch_metric_alarm" "ecs_api_cpu" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "ecs_api_memory" {
-  alarm_name          = "${var.name_prefix}-ecs-api-memory-high"
-  alarm_description   = "ECS API service memory utilization exceeded ${var.ecs_memory_threshold}% for 10 minutes. Check for memory leaks or increase task memory."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-ecs-api-memory-high"
+  alarm_description = "ECS API service memory utilization exceeded ${var.ecs_memory_threshold}% for 10 minutes. Check for memory leaks or increase task memory."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
-  namespace           = "AWS/ECS"
-  metric_name         = "MemoryUtilization"
+  namespace   = "AWS/ECS"
+  metric_name = "MemoryUtilization"
   dimensions = {
     ClusterName = var.ecs_cluster_name
     ServiceName = var.ecs_api_service_name
@@ -147,14 +147,14 @@ resource "aws_cloudwatch_metric_alarm" "ecs_api_memory" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "ecs_api_running_tasks" {
-  alarm_name          = "${var.name_prefix}-ecs-api-tasks-low"
-  alarm_description   = "ECS API running task count dropped below ${var.ecs_min_running_tasks}. The API may be unavailable."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-ecs-api-tasks-low"
+  alarm_description = "ECS API running task count dropped below ${var.ecs_min_running_tasks}. The API may be unavailable."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
-  namespace           = "AWS/ECS"
-  metric_name         = "RunningTaskCount"
+  namespace   = "AWS/ECS"
+  metric_name = "RunningTaskCount"
   dimensions = {
     ClusterName = var.ecs_cluster_name
     ServiceName = var.ecs_api_service_name
@@ -172,14 +172,14 @@ resource "aws_cloudwatch_metric_alarm" "ecs_api_running_tasks" {
 # ── ECS alarms (worker service) ───────────────────────────────────────────────
 
 resource "aws_cloudwatch_metric_alarm" "ecs_worker_cpu" {
-  alarm_name          = "${var.name_prefix}-ecs-worker-cpu-high"
-  alarm_description   = "ECS worker service CPU utilization exceeded ${var.ecs_cpu_threshold}% for 10 minutes. Check Celery task throughput."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-ecs-worker-cpu-high"
+  alarm_description = "ECS worker service CPU utilization exceeded ${var.ecs_cpu_threshold}% for 10 minutes. Check Celery task throughput."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
-  namespace           = "AWS/ECS"
-  metric_name         = "CPUUtilization"
+  namespace   = "AWS/ECS"
+  metric_name = "CPUUtilization"
   dimensions = {
     ClusterName = var.ecs_cluster_name
     ServiceName = var.ecs_worker_service_name
@@ -195,14 +195,14 @@ resource "aws_cloudwatch_metric_alarm" "ecs_worker_cpu" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "ecs_worker_memory" {
-  alarm_name          = "${var.name_prefix}-ecs-worker-memory-high"
-  alarm_description   = "ECS worker service memory utilization exceeded ${var.ecs_memory_threshold}% for 10 minutes."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-ecs-worker-memory-high"
+  alarm_description = "ECS worker service memory utilization exceeded ${var.ecs_memory_threshold}% for 10 minutes."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
-  namespace           = "AWS/ECS"
-  metric_name         = "MemoryUtilization"
+  namespace   = "AWS/ECS"
+  metric_name = "MemoryUtilization"
   dimensions = {
     ClusterName = var.ecs_cluster_name
     ServiceName = var.ecs_worker_service_name
@@ -218,14 +218,14 @@ resource "aws_cloudwatch_metric_alarm" "ecs_worker_memory" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "ecs_worker_running_tasks" {
-  alarm_name          = "${var.name_prefix}-ecs-worker-tasks-low"
-  alarm_description   = "ECS worker running task count dropped below ${var.ecs_min_running_tasks}. Async provisioning jobs will not be processed."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-ecs-worker-tasks-low"
+  alarm_description = "ECS worker running task count dropped below ${var.ecs_min_running_tasks}. Async provisioning jobs will not be processed."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
-  namespace           = "AWS/ECS"
-  metric_name         = "RunningTaskCount"
+  namespace   = "AWS/ECS"
+  metric_name = "RunningTaskCount"
   dimensions = {
     ClusterName = var.ecs_cluster_name
     ServiceName = var.ecs_worker_service_name
@@ -243,11 +243,11 @@ resource "aws_cloudwatch_metric_alarm" "ecs_worker_running_tasks" {
 # ── RDS / Aurora alarms ───────────────────────────────────────────────────────
 
 resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
-  alarm_name          = "${var.name_prefix}-rds-cpu-high"
-  alarm_description   = "Aurora cluster CPU utilization exceeded ${var.rds_cpu_threshold}% for 10 minutes."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-rds-cpu-high"
+  alarm_description = "Aurora cluster CPU utilization exceeded ${var.rds_cpu_threshold}% for 10 minutes."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
   namespace           = "AWS/RDS"
   metric_name         = "CPUUtilization"
@@ -263,11 +263,11 @@ resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "rds_freeable_memory" {
-  alarm_name          = "${var.name_prefix}-rds-memory-low"
-  alarm_description   = "Aurora cluster freeable memory dropped below ${var.rds_freeable_memory_threshold} bytes. Risk of OOM eviction."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-rds-memory-low"
+  alarm_description = "Aurora cluster freeable memory dropped below ${var.rds_freeable_memory_threshold} bytes. Risk of OOM eviction."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
   namespace           = "AWS/RDS"
   metric_name         = "FreeableMemory"
@@ -283,11 +283,11 @@ resource "aws_cloudwatch_metric_alarm" "rds_freeable_memory" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "rds_connections" {
-  alarm_name          = "${var.name_prefix}-rds-connections-high"
-  alarm_description   = "Aurora cluster connection count exceeded ${var.rds_connections_threshold}. Check for connection leaks or pool exhaustion."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-rds-connections-high"
+  alarm_description = "Aurora cluster connection count exceeded ${var.rds_connections_threshold}. Check for connection leaks or pool exhaustion."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
   namespace           = "AWS/RDS"
   metric_name         = "DatabaseConnections"
@@ -305,11 +305,11 @@ resource "aws_cloudwatch_metric_alarm" "rds_connections" {
 # ── ElastiCache / Redis alarms ────────────────────────────────────────────────
 
 resource "aws_cloudwatch_metric_alarm" "cache_cpu" {
-  alarm_name          = "${var.name_prefix}-cache-cpu-high"
-  alarm_description   = "ElastiCache CPU utilization exceeded ${var.cache_cpu_threshold}% for 10 minutes. Redis is CPU-bound; consider scaling up the node type."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-cache-cpu-high"
+  alarm_description = "ElastiCache CPU utilization exceeded ${var.cache_cpu_threshold}% for 10 minutes. Redis is CPU-bound; consider scaling up the node type."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
   namespace           = "AWS/ElastiCache"
   metric_name         = "CPUUtilization"
@@ -325,11 +325,11 @@ resource "aws_cloudwatch_metric_alarm" "cache_cpu" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "cache_evictions" {
-  alarm_name          = "${var.name_prefix}-cache-evictions-high"
-  alarm_description   = "ElastiCache eviction count exceeded ${var.cache_evictions_threshold} in 5 minutes. Redis is evicting keys due to memory pressure; investigate maxmemory-policy and data growth."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-cache-evictions-high"
+  alarm_description = "ElastiCache eviction count exceeded ${var.cache_evictions_threshold} in 5 minutes. Redis is evicting keys due to memory pressure; investigate maxmemory-policy and data growth."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
   namespace           = "AWS/ElastiCache"
   metric_name         = "Evictions"
@@ -345,11 +345,11 @@ resource "aws_cloudwatch_metric_alarm" "cache_evictions" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "cache_connections" {
-  alarm_name          = "${var.name_prefix}-cache-connections-high"
-  alarm_description   = "ElastiCache current connections exceeded ${var.cache_connections_threshold}. Check for connection leaks in Celery workers."
-  actions_enabled     = var.alarms_enabled
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  ok_actions          = [aws_sns_topic.alerts.arn]
+  alarm_name        = "${var.name_prefix}-cache-connections-high"
+  alarm_description = "ElastiCache current connections exceeded ${var.cache_connections_threshold}. Check for connection leaks in Celery workers."
+  actions_enabled   = var.alarms_enabled
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+  ok_actions        = [aws_sns_topic.alerts.arn]
 
   namespace           = "AWS/ElastiCache"
   metric_name         = "CurrConnections"
