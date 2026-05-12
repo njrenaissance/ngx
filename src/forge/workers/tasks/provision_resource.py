@@ -1,9 +1,9 @@
 """provision_resource Celery task — async engine entry point.
 
-E.1 scope (wiring proof): only flips RESOURCE_REQUEST.status from
-`pending` to `provisioning` to `provisioned`. This proves the
-enqueue/consume path end-to-end. Workspace materialization arrives in
-E.2 and real plan-then-apply in E.3.
+E.2 scope: flips RESOURCE_REQUEST.status from `pending` to `provisioning`,
+materializes a per-request Terraform workspace on disk (no terraform run
+yet), persists DEPLOYMENT + DEPLOYMENT_AZ, then flips to `provisioned`.
+Real plan-then-apply arrives in E.3.
 """
 
 import logging
@@ -13,6 +13,7 @@ from celery import shared_task  # type: ignore[import-untyped]
 
 from forge.db import SyncSession
 from forge.models.provisioning import ResourceRequest
+from forge.workers.workspace import WorkspaceMaterializationError, materialize_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,19 @@ def provision_resource(resource_request_id: str) -> str:
             rr.status = "provisioning"
             session.commit()
 
-        # E.1 stub: no Terraform yet. Future PRs replace this with
-        # workspace materialization (E.2) and plan-then-apply (E.3).
+        # E.2: materialize the on-disk Terraform workspace and persist
+        # DEPLOYMENT + DEPLOYMENT_AZ rows. Still no `terraform` invocation —
+        # that arrives in E.3. WorkspaceMaterializationError represents a
+        # structural mismatch (config keys don't match terraform_variable_map,
+        # missing package on disk, etc.) — retrying won't help, so we flip
+        # straight to `failed`.
+        try:
+            materialize_workspace(session, rr)
+        except WorkspaceMaterializationError as exc:
+            logger.error("materialize_workspace failed for %s: %s", rr_id, exc)
+            rr.status = "failed"
+            session.commit()
+            return str(rr.status)
 
         rr.status = "provisioned"
         session.commit()

@@ -34,23 +34,33 @@ def _mock_session_with_request(status: str = "pending") -> tuple[MagicMock, Magi
     return session, rr
 
 
-def _run(session: MagicMock, rr_id: uuid.UUID) -> str:
-    """Invoke the task body synchronously with SyncSession patched.
+def _run(
+    session: MagicMock,
+    rr_id: uuid.UUID,
+    materializer: MagicMock | None = None,
+) -> tuple[str, MagicMock]:
+    """Invoke the task body synchronously with SyncSession + materializer patched.
 
     Note: `.run()` calls the wrapped Python function directly, bypassing
     the Celery task envelope — no autoretry_for, no result backend
-    persistence, no acks_late semantics. When E.2/E.3 add retry policies
+    persistence, no acks_late semantics. When E.3 adds retry policies
     (e.g. `autoretry_for=(TerraformError,)`), those will need separate
     coverage via a Celery-aware test harness or integration test.
+
+    Returns (result, materializer_mock) so callers can assert on it.
     """
-    with patch.object(task_module, "SyncSession", return_value=session):
-        return provision_resource.run(str(rr_id))
+    mat = materializer or MagicMock(return_value="/tmp/forge-workspaces/fake")
+    with (
+        patch.object(task_module, "SyncSession", return_value=session),
+        patch.object(task_module, "materialize_workspace", mat),
+    ):
+        return provision_resource.run(str(rr_id)), mat
 
 
 class TestProvisionResource:
     def test_pending_transitions_to_provisioned(self) -> None:
         session, rr = _mock_session_with_request(status="pending")
-        result = _run(session, rr.id)
+        result, _ = _run(session, rr.id)
         assert result == "provisioned"
         assert rr.status == "provisioned"
 
@@ -60,46 +70,76 @@ class TestProvisionResource:
         observed_statuses: list[str] = []
         session.commit.side_effect = lambda: observed_statuses.append(rr.status)
         _run(session, rr.id)
+        # The mocked materializer doesn't call session.commit(), so only the
+        # two task-driven transitions are observed here.
         assert observed_statuses == ["provisioning", "provisioned"]
 
     def test_idempotent_on_provisioned(self) -> None:
         """Re-entry on a terminal row is a no-op (no commits)."""
         session, rr = _mock_session_with_request(status="provisioned")
-        result = _run(session, rr.id)
+        result, mat = _run(session, rr.id)
         assert result == "provisioned"
         session.commit.assert_not_called()
+        mat.assert_not_called()
 
     def test_idempotent_on_failed(self) -> None:
         session, rr = _mock_session_with_request(status="failed")
-        result = _run(session, rr.id)
+        result, mat = _run(session, rr.id)
         assert result == "failed"
         session.commit.assert_not_called()
+        mat.assert_not_called()
 
     def test_missing_row_returns_not_found(self) -> None:
         session = MagicMock()
         session.__enter__.return_value = session
         session.__exit__.return_value = False
         session.query.return_value.filter.return_value.first.return_value = None
-        result = _run(session, uuid.uuid4())
+        result, mat = _run(session, uuid.uuid4())
         assert result == "not_found"
+        mat.assert_not_called()
 
     def test_provisioning_is_resumed(self) -> None:
         """A row already in `provisioning` (worker crashed mid-flight) is resumed,
-        not skipped. Otherwise an acks_late redelivery would strand the row."""
+        not skipped. Otherwise an acks_late redelivery would strand the row.
+        Materializer is still invoked on the resume path because itself is
+        idempotent — it converges on the same on-disk + on-DB state."""
         session, rr = _mock_session_with_request(status="provisioning")
-        result = _run(session, rr.id)
+        result, mat = _run(session, rr.id)
         assert result == "provisioned"
         assert rr.status == "provisioned"
-        # Only one commit on the resume path — pending->provisioning is already
-        # done, so we only commit the terminal transition.
+        # Materializer called exactly once even on the resume path.
+        mat.assert_called_once_with(session, rr)
+        # Only one task-level commit on the resume path — pending->provisioning
+        # was already done, so we only commit the terminal transition.
         assert session.commit.call_count == 1
 
     def test_non_resumable_status_skipped(self) -> None:
         """Statuses outside our lifecycle (e.g. destroy_*) are refused."""
         session, rr = _mock_session_with_request(status="destroying")
-        result = _run(session, rr.id)
+        result, mat = _run(session, rr.id)
         assert result == "destroying"
         session.commit.assert_not_called()
+        mat.assert_not_called()
+
+    def test_materializer_called_exactly_once_on_happy_path(self) -> None:
+        session, rr = _mock_session_with_request(status="pending")
+        _, mat = _run(session, rr.id)
+        mat.assert_called_once_with(session, rr)
+
+    def test_materializer_failure_marks_request_failed(self) -> None:
+        """WorkspaceMaterializationError flips status to `failed` and does
+        not propagate — the task returns "failed" cleanly so Celery doesn't
+        retry a structural mismatch that won't fix itself."""
+        from forge.workers.workspace import WorkspaceMaterializationError
+
+        session, rr = _mock_session_with_request(status="pending")
+        bad_mat = MagicMock(side_effect=WorkspaceMaterializationError("config mismatch"))
+        result, _ = _run(session, rr.id, materializer=bad_mat)
+        assert result == "failed"
+        assert rr.status == "failed"
+        # Two commits: pending->provisioning, then ->failed. The materializer
+        # raised before its own commit could fire.
+        assert session.commit.call_count == 2
 
 
 class TestCeleryAppConfig:

@@ -20,10 +20,15 @@ _LIFECYCLE_STATES = {"pending", "provisioning", "provisioned"}
 def test_post_then_get_resource(forge_url: str) -> None:
     payload = {
         "resource_type": "managed_database",
-        "tier": "tier2",
+        # Use "dev" tier (min_azs_per_region=1) — the seeded ngx-region-1a
+        # only has one AZ, so tier2 (min_azs=2) would cause the materializer
+        # to raise and flip the row to "failed".
+        "tier": "dev",
         "logical_region": "ngx-region-1a",
         "name": "integration-test-db",
-        "config": {"engine": "postgres", "size": "small"},
+        # storage_gb required: bidirectional varmap check in materialize_workspace
+        # requires all terraform_variable_map keys to be present in config.
+        "config": {"engine": "postgres", "size": "small", "storage_gb": 100},
     }
 
     create = httpx.post(f"{forge_url}/v1/resources", json=payload, headers=AUTH)
@@ -41,7 +46,7 @@ def test_post_then_get_resource(forge_url: str) -> None:
     assert body["resource_id"] == resource_id
     assert body["name"] == "integration-test-db"
     assert body["resource_type"] == "managed_database"
-    assert body["tier"] == "tier2"
+    assert body["tier"] == "dev"
     assert body["logical_region"] == "ngx-region-1a"
     # The worker may have already advanced the row by the time we GET. Accept
     # any state in the forward lifecycle.

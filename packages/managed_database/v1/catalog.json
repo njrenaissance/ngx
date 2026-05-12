@@ -1,0 +1,24 @@
+{
+  "_comment": "SPEC §6.4: catalog.json mirrors the seeded resource_types[0] row exactly and is immutable per published version (§6.3). A new version means a new directory (v2/, v3/, ...) — never edit an existing one. The CI validator (deferred follow-up) will assert this file stays byte-identical to the matching DB row.",
+  "name": "managed_database",
+  "version": 1,
+  "label": "Managed Database",
+  "latest": true,
+  "description": "Managed relational database (PostgreSQL or MySQL). AWS RDS Aurora.",
+  "base_config_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["engine", "size"],
+    "properties": {
+      "engine":     {"type": "string", "enum": ["postgres", "mysql"]},
+      "size":       {"type": "string", "enum": ["small", "medium", "large", "xlarge"]},
+      "storage_gb": {"type": "integer", "minimum": 20, "maximum": 16000, "default": 100}
+    }
+  },
+  "terraform_variable_map": {
+    "engine": "db_engine",
+    "size": "db_size",
+    "storage_gb": "db_storage_gb"
+  }
+}
