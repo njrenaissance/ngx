@@ -8,7 +8,7 @@ from forge.api.auth import AuthContext, require_auth
 router = APIRouter(prefix="/v1", tags=["me"])
 
 
-class TeamOut(BaseModel):
+class TeamResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -23,7 +23,7 @@ class MeResponse(BaseModel):
     first_name: str
     last_name: str
     role: str
-    team: TeamOut
+    team: TeamResponse
     last_seen_at: datetime | None
 
 
@@ -36,6 +36,6 @@ def me(auth: AuthContext = Depends(require_auth)) -> MeResponse:
         first_name=user.first_name,
         last_name=user.last_name,
         role=user.role,
-        team=TeamOut(id=str(user.team.id), name=user.team.name),
+        team=TeamResponse(id=str(user.team.id), name=user.team.name),
         last_seen_at=user.last_seen_at,
     )
