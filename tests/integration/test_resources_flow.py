@@ -74,7 +74,11 @@ def test_post_with_team_id_in_body_returns_400(forge_url: str) -> None:
     }
     resp = httpx.post(f"{forge_url}/v1/resources", json=payload, headers=AUTH)
     assert resp.status_code == 400
-    assert "team_id" in resp.json()["detail"]
+    body = resp.json()
+    assert resp.headers.get("content-type") == "application/problem+json"
+    assert body["type"] == "urn:forge:error:bad-request"
+    assert body["status"] == 400
+    assert "team_id" in body["detail"]
 
 
 def test_unknown_resource_id_returns_404(forge_url: str) -> None:
@@ -83,6 +87,10 @@ def test_unknown_resource_id_returns_404(forge_url: str) -> None:
         headers=AUTH,
     )
     assert resp.status_code == 404
+    body = resp.json()
+    assert resp.headers.get("content-type") == "application/problem+json"
+    assert body["type"] == "urn:forge:error:resource-not-found"
+    assert body["status"] == 404
 
 
 def test_list_requires_auth(forge_url: str) -> None:

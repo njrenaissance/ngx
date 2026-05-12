@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from forge.api.auth import AuthContext, require_auth
 from forge.api.deps import get_db_session
+from forge.api.problem_details import ProblemDetailsException
 from forge.api.schemas.catalog import RegionResponse, ResourceTypeResponse, TierResponse
 from forge.models.catalog import ResourceType, ResourceTypeTierConstraint, TierPolicy
 from forge.models.topology import LogicalRegion
@@ -93,14 +94,24 @@ def get_resource_type(
         .first()
     )
     if rt is None:
-        raise HTTPException(status_code=404, detail=f"Resource type '{name}' not found")
+        raise ProblemDetailsException(
+            status=404,
+            type="urn:forge:error:resource-type-not-found",
+            title="Resource type not found",
+            detail=f"Resource type '{name}' not found",
+        )
 
     schema = rt.base_config_schema
 
     if tier is not None:
         tp = session.query(TierPolicy).filter(TierPolicy.tier_name == tier).first()
         if tp is None:
-            raise HTTPException(status_code=404, detail=f"Tier '{tier}' not found")
+            raise ProblemDetailsException(
+                status=404,
+                type="urn:forge:error:tier-not-found",
+                title="Tier not found",
+                detail=f"Tier '{tier}' not found",
+            )
 
         constraint = (
             session.query(ResourceTypeTierConstraint).filter_by(resource_type_id=rt.id, tier_policy_id=tp.id).first()
