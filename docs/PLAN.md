@@ -160,16 +160,16 @@ The API and worker share Pydantic models, DB models, and Celery task signatures 
 
 **Hard requirements from PDF that MUST be true at submission:**
 - [x] All workloads deployed via Terraform via CI/CD — `terraform.yml` (plan/apply w/ env gate) + `deploy.yml` (force-new-deployment)
-- [ ] Reusable TF modules + `terraform test` coverage on at least one module — _flat `infrastructure/dev/main.tf`; no `modules/`, no `*.tftest.hcl`_
-- [~] No wildcard IAM, no hardcoded secrets (SSM/Secrets Manager) — _deployer policy scoped to `forge-*` ARNs (PR #11); no SSM/Secrets Manager wired yet (nothing to store)_
-- [x] Service is containerized, exposed via ALB, **reachable for demo** — Fargate task behind `forge-dev-alb`
-- [ ] Service does input validation, error handling, structured logging — _only health endpoints exist; no Pydantic models, no structlog_
-- [ ] Service writes to S3 / DynamoDB / Aurora — _no data layer yet_
-- [ ] CloudWatch alarms with SNS notifications for key metrics (ECS CPU/mem) — _log group only_
-- [~] README + DECISIONS.md (1–2 paragraphs on a key choice) — _README done; DECISIONS.md missing_
-- [~] `diagrams/` with draw.io `.xml` + image — _`docs/diagrams/NGX_Networkinig.drawio` exists (filename typo); no PNG export_
+- [x] Reusable TF modules + `terraform test` coverage on at least one module — `infrastructure/modules/{network,alb,ecr,ecs_service,kms,database,cache}`; `ecr/tests/lifecycle.tftest.hcl`, `kms/tests/cmk.tftest.hcl`, `cache/tests/cache.tftest.hcl` (PR #16, #21, #57)
+- [x] No wildcard IAM, no hardcoded secrets (SSM/Secrets Manager) — deployer policy scoped to `forge-*` ARNs; DB password in Secrets Manager wired via ECS `secrets[]`; KMS CMK on Aurora + ElastiCache (PR #21, #57)
+- [x] Service is containerized, exposed via ALB, **reachable for demo** — Fargate api + worker tasks behind `forge-dev-alb`
+- [x] Service does input validation, error handling, structured logging — Pydantic models on all endpoints; provisioning schema + Celery enqueue in `POST /v1/resources`; structlog in pyproject.toml (PR #46, #59)
+- [x] Service writes to Aurora — provisioning schema (`ResourceRequest`, `Deployment`, `DeploymentAz`) persisted in Aurora Serverless v2 (PR #46, #59)
+- [ ] CloudWatch alarms with SNS notifications for key metrics (ECS CPU/mem) — _log groups exist; no `aws_cloudwatch_metric_alarm` or `aws_sns_topic` in TF yet_
+- [x] README + DECISIONS.md — both exist; README refreshed PR #61; DECISIONS.md has ADR-001 through ADR-010+
+- [~] `diagrams/` with draw.io `.xml` + image — `docs/diagrams/NGX_Networkinig.drawio` exists (filename typo); `NGX_Networking.png` exported (this branch); diagram needs API→ElastiCache arrow added before committing
 - [x] `CLAUDE.md` present
-- [ ] **At least one PR left open** showing AI iteration — _PR #2, #3, #11 all merged_
+- [ ] **At least one PR left open** showing AI iteration — _all 61 PRs merged; must leave the next feature PR open at submission_
 
 ---
 
@@ -182,50 +182,51 @@ This is what each rubric category needs at minimum to score well. Anything beyon
 - [x] FastAPI app with health endpoints: `GET /health/live`, `GET /health/ready`, `GET /docs` — live on ECS Fargate behind ALB
 - [x] API key auth middleware (`Authorization: Bearer <key>`) with bcrypt verification — PR #37
 - [x] `GET /v1/me` smoke endpoint — PR #37
-- [x] Catalog read endpoints: `GET /v1/catalog/regions`, `GET /v1/catalog/tiers`, `GET /v1/catalog/resource-types`, `GET /v1/catalog/resource-types/{name}` — PR #43 (current branch)
-- [ ] **Provisioning endpoints**: `POST /v1/resources`, `GET /v1/resources/{id}`, `GET /v1/resources` — _not yet; next up_
-- [ ] Pydantic request validation on `POST /v1/resources` (name regex, region allowlist, tags required: `Owner`, `CostCenter`, environment)
-- [ ] Idempotency on `POST /v1/resources` (client-supplied `Idempotency-Key` header → unique constraint on `provisioning_requests`)
-- [ ] Errors: 400 validation, 409 conflict (dup idempotency key), 422 policy violation, 500 — mapped to RFC 7807 `application/problem+json`
-- [ ] Structured JSON logs (`structlog`) — one log line per request with `request_id` correlation; `structlog` not yet in `pyproject.toml`
-- [~] Records requests in Postgres (sync SQLAlchemy + `psycopg2-binary`): `provisioning_requests`, `provisioned_resources` — _catalog + topology + identity tables exist; provisioning tables (from `RequestHeader` model) not yet added_
-- [ ] **Execution: API enqueues to Celery (Redis broker); worker shells out to pinned `terraform` binary.** Per-request workdir, per-request remote state. `-json` output streamed into structlog. (`celery[redis]` in `pyproject.toml`; worker module not yet implemented)
-- [~] **Decision captured in DECISIONS.md**: "Why shell out to the Terraform binary in a Celery worker" — _`DECISIONS.md` exists with Aurora/DB decisions; Terraform-runner rationale not yet written_
+- [x] Catalog read endpoints: `GET /v1/catalog/regions`, `GET /v1/catalog/tiers`, `GET /v1/catalog/resource-types`, `GET /v1/catalog/resource-types/{name}` — PR #44
+- [x] **Provisioning endpoints**: `POST /v1/resources`, `GET /v1/resources/{id}`, `GET /v1/resources` — PR #46; Pydantic models on request/response, DB write, Celery enqueue
+- [x] Pydantic request validation on `POST /v1/resources` (name regex, region/tier/resource-type enum, logical-region resolution) — PR #46
+- [x] Idempotency on `POST /v1/resources` (client-supplied `Idempotency-Key` header → unique constraint on `resource_requests`) — PR #46
+- [~] Errors: 422 validation from Pydantic; 409 idempotency collision — _RFC 7807 `application/problem+json` shape not yet enforced; plain FastAPI default error bodies_
+- [x] Structured JSON logs (`structlog`) — in `pyproject.toml`; request-id correlation middleware present — PR #46
+- [x] Records requests in Postgres (sync SQLAlchemy + `psycopg[binary]`): `resource_requests`, `deployments`, `deployment_azs` — PR #46, #59
+- [x] **Execution: API enqueues `forge.provision_resource` to Celery (ElastiCache Redis broker); worker materializes per-request TF workspace on disk** — PR #53 (Celery wiring), PR #59 (workspace materialization E.2); E.3 (`terraform apply`) not yet wired
+- [~] **Decision captured in DECISIONS.md**: execution model ADRs exist — _Terraform binary shell-out rationale not yet a named ADR entry_
 
 ### Terraform (25%) — minimum bar
 
-- [x] Module-per-concern under `infrastructure/modules/`: `network`, `alb`, `ecr`, `ecs_service`, `kms`, `database` — all implemented
+- [x] Module-per-concern under `infrastructure/modules/`: `network`, `alb`, `ecr`, `ecs_service`, `kms`, `database`, `cache` — all implemented (PR #16, #21, #57)
 - [x] Single env at `infrastructure/dev/` composing the modules — thin composition, modules wired together
-- [x] **Two `*.tftest.hcl` files**: `infrastructure/modules/ecr/tests/lifecycle.tftest.hcl` (prefix-list contract) + `infrastructure/modules/kms/tests/cmk.tftest.hcl` (rotation + no-wildcard)
-- [~] `terraform fmt` + `terraform validate` + `tflint` + `checkov` running in CI — _`fmt -check` + `validate` + `plan` in `terraform.yml`; `tflint` and `checkov` not yet added_
-- [x] OIDC trust between GitHub Actions and AWS — _static keys replaced with OIDC role (PR #19); `oidc_deploy_role_name` variable in `infrastructure/dev/`_
+- [x] **Three `*.tftest.hcl` files**: `infrastructure/modules/ecr/tests/lifecycle.tftest.hcl` + `infrastructure/modules/kms/tests/cmk.tftest.hcl` + `infrastructure/modules/cache/tests/cache.tftest.hcl` (PR #16, #21, #57)
+- [x] `terraform fmt` + `terraform validate` + `tflint` + `checkov` running in CI — all four gates in `terraform.yml`; tflint + checkov added PR #47 (checkov soft-fails to baseline existing findings)
+- [x] OIDC trust between GitHub Actions and AWS — static keys replaced with OIDC role (PR #19)
 - [x] Backend: S3 + DynamoDB lock; `infrastructure/bootstrap/` + README walkthrough
-- [~] Least-privilege IAM: execution role (AWS-managed `AmazonECSTaskExecutionRolePolicy`) separate from task role; deployer policy scoped to `forge-*` ARNs — _task role exists but resource-provisioning S3 permissions not yet added (nothing to provision yet)_
-- [~] Sensitive values via Secrets Manager — _DB password managed via `database` module; ECS task definition wires it in via `secrets[]`; verify Secrets Manager ARN surfaced as output_
-- [x] **Option 1 inclusions**: KMS CMK on Aurora/database storage (`kms` module) + CloudWatch log groups + S3 state bucket — _KMS module implemented; TLS on ALB, autoscaling deferred to iteration_
+- [x] Least-privilege IAM: execution role (AWS-managed `AmazonECSTaskExecutionRolePolicy`) separate from task role; deployer policy scoped to `forge-*` ARNs; worker task role has `ecs:RunTask/DescribeTasks/StopTask` (PR #43)
+- [x] Sensitive values via Secrets Manager — DB password + ElastiCache connection string in Secrets Manager; both wired into ECS task `secrets[]` (PR #21, #57)
+- [x] **Option 1 inclusions**: KMS CMK on Aurora (`database` module) + KMS CMK on ElastiCache (`cache` module) + CloudWatch log groups — all implemented; TLS on ALB and ECS autoscaling deferred to iteration
+- [ ] **Worker task role needs S3 + DynamoDB permissions for TF remote state** — needed when E.3 (`terraform apply`) lands; not yet added
 
 ### AI workflow (20%) — minimum bar
 
 - [x] `CLAUDE.md` present with project context, do/don't list, decision log pointer
-- [x] Branch-per-issue, conventional commits, **co-author trailer on every commit** — consistent across 43+ PRs; merge commits, not squash
-- [x] Issue → PR cadence visible — 43 PRs landed, all merge-commits, each scoped to one issue
-- [ ] **One PR left open** at submission showing iteration in progress (e.g., adding DynamoDB resource type, or wiring Bedrock pre-flight check). PR description must include a short "AI collaboration notes" section
-- [ ] `docs/AI_WORKFLOW.md` — 3–4 specific examples (one course-correction, one win, one limitation)
+- [x] Branch-per-issue, conventional commits, **co-author trailer on every commit** — consistent across 61+ PRs; merge commits, not squash
+- [x] Issue → PR cadence visible — 61 PRs landed, all merge-commits, each scoped to one issue
+- [ ] **One PR left open** at submission showing iteration in progress — _all 61 PRs merged; must leave the next feature PR open (e.g. E.3 terraform apply) at submission_
+- [ ] `docs/AI_WORKFLOW.md` — 3–4 specific examples (one course-correction, one win, one limitation) — _not yet created_
 
 ### CI/CD (15%) — minimum bar
 
 - [x] Core workflows: `format-lint.yml`, `unit-tests.yml`, `ci.yml`, `build-container.yml`, `ai-code-review.yml`, `migrate.yml`
-- [~] `terraform.yml`: fmt → validate → plan on PR (PR comment posted) → apply on push to main (`production` env gate) — _tflint and checkov not yet added_
-- [x] `deploy.yml`: force-new-deployment after container push; `aws ecs wait services-stable`
+- [x] `terraform.yml`: fmt → validate → tflint → checkov → plan on PR (PR comment posted) → apply on push to main (`production` env gate) — PR #47
+- [x] `deploy.yml`: force-new-deployment after container push; polls `rolloutState=COMPLETED`
 - [x] `build-container.yml`: pushes `:latest`, `:<version>`, `:<sha>` to ECR (ECS pulls from ECR)
-- [ ] One CloudWatch alarm + SNS topic with email subscription for ECS CPU > 80% (minimum for rubric's "alarms with SNS notifications" line)
+- [ ] One CloudWatch alarm + SNS topic with email subscription for ECS CPU > 80% — _no `aws_cloudwatch_metric_alarm` or `aws_sns_topic` in any TF module yet; last rubric gap_
 
 ### Docs (10%) — minimum bar
 
-- [~] `README.md`: exists with CI badges, service description, deploy steps — _no live demo URL, no API examples (provisioning API not yet built), no teardown section; update once `/v1/resources` ships_
-- [x] `DECISIONS.md`: exists with Aurora/DB rationale — _add "Why Terraform binary in Celery worker" entry_
-- [~] `diagrams/architecture.drawio` + `architecture.png` — _`docs/diagrams/NGX_Networkinig.drawio` exists (filename typo `Networkinig`); no `.png` export_
-- [ ] Architecture diagram renamed to `architecture.drawio`, `.png` exported, and embedded in README
+- [x] `README.md`: refreshed PR #61 — CI badges, architecture overview, deploy steps, API examples; add live demo URL once ALB is confirmed reachable
+- [x] `DECISIONS.md`: multiple ADRs (ADR-001 through ADR-010+) covering Python/FastAPI choice, Aurora Serverless, Celery/Redis, workspace materialization
+- [~] `diagrams/` with draw.io source + PNG — `docs/diagrams/NGX_Networkinig.drawio` exists (filename typo); `NGX_Networking.png` exported on this branch but not yet committed; diagram needs API→ElastiCache arrow (API also connects to Redis for task enqueue, not just the worker)
+- [ ] Diagram committed with typo fixed, API→ElastiCache arrow added, PNG embedded in README
 
 ---
 
