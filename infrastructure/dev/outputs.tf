@@ -47,3 +47,20 @@ output "kms_alias_name" {
   description = "Human-readable KMS alias (e.g. alias/forge-dev)."
   value       = module.kms.alias_name
 }
+
+# ─── Celery broker + worker (issue #54) ───────────────────────────────────────
+
+output "cache_endpoint" {
+  description = "Elasticache primary endpoint. Useful for ad-hoc redis-cli (over a bastion or SSM session) when debugging broker state."
+  value       = module.cache.primary_endpoint_address
+}
+
+output "ecs_worker_service_name" {
+  description = "ECS service name for the Celery worker. Referenced by deploy.yml-style `aws ecs update-service --force-new-deployment` runs when redeploying just the worker."
+  value       = module.ecs_service.worker_service_name
+}
+
+output "ecs_worker_log_group_name" {
+  description = "CloudWatch log group the worker streams to. Grep here for `celery@... ready` and `Connected to rediss://...` on healthy startup."
+  value       = module.ecs_service.worker_log_group_name
+}

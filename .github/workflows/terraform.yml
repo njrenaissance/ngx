@@ -137,6 +137,12 @@ jobs:
           terraform test -no-color
         working-directory: infrastructure/modules/kms
 
+      - name: terraform test — cache module
+        run: |
+          terraform init -input=false -backend=false
+          terraform test -no-color
+        working-directory: infrastructure/modules/cache
+
       - name: terraform plan
         id: tfplan
         env:

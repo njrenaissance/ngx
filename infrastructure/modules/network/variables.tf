@@ -14,3 +14,8 @@ variable "az_count" {
   type        = number
   default     = 2
 }
+
+variable "alb_security_group_id" {
+  description = "ALB security group ID. The shared app SG (used by both api and worker ECS tasks) ingresses port 8000 only from this SG."
+  type        = string
+}

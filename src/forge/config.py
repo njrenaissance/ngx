@@ -44,6 +44,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "celery": {
         "BROKER_URL": "",
+        # Cross-file invariant: this queue name must match the `-Q` flag on the
+        # worker's celery command in infrastructure/modules/ecs_service/main.tf
+        # (search for "-Q", "provisioning"). The worker only consumes the
+        # queue(s) it's started with; a mismatch means tasks accumulate in
+        # the broker forever with no consumer. There is no enforced single
+        # source of truth — change requires editing both places.
         "TASK_DEFAULT_QUEUE": "provisioning",
         "TASK_TIME_LIMIT": 1800,  # 30 min hard kill — covers a slow terraform apply
         "TASK_SOFT_TIME_LIMIT": 1500,  # 25 min soft — leaves room for in-task cleanup

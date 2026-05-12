@@ -97,9 +97,27 @@ moved {
 
 # ─── ecs_service module ────────────────────────────────────────────────────────
 
+# aws_security_group.app moved twice in this repo's history:
+#   1. Root-level → module.ecs_service (PR #13 initial module refactor)
+#   2. module.ecs_service → module.network (PR #54, this PR — cache↔ecs_service
+#      cycle break; see ADR-010)
+#
+# Terraform requires each destination to have only one `from`, so we keep
+# both hops in code. The second block is the one that fires for this repo's
+# current state files (which are all at the module.ecs_service address per
+# PR #13); the first block exists for completeness in case any state file
+# was created before #13 and never advanced past the root address. That
+# scenario is not present in our own dev state — the plan we ran on
+# 2026-05-12 confirmed only the second block fired and the SG retained its
+# physical id.
 moved {
   from = aws_security_group.app
   to   = module.ecs_service.aws_security_group.app
+}
+
+moved {
+  from = module.ecs_service.aws_security_group.app
+  to   = module.network.aws_security_group.app
 }
 
 moved {
