@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import bcrypt
@@ -64,23 +63,24 @@ def _fake_user(api_key: str, role: str = "member") -> AppUser:
     return user
 
 
+def _fake_session(users: list[AppUser]) -> MagicMock:
+    """Build a MagicMock session wired for the .options().limit().all() chain."""
+    session = MagicMock()
+    session.query.return_value.options.return_value.limit.return_value.all.return_value = users
+    return session
+
+
 def test_verify_key_returns_matching_user() -> None:
     user = _fake_user("crp_dev_secret")
-    session = MagicMock()
-    session.query.return_value.all.return_value = [user]
-    assert _verify_key(session, "crp_dev_secret") is user
+    assert _verify_key(_fake_session([user]), "crp_dev_secret") is user
 
 
 def test_verify_key_returns_none_when_no_match() -> None:
-    session = MagicMock()
-    session.query.return_value.all.return_value = [_fake_user("crp_dev_other")]
-    assert _verify_key(session, "crp_dev_wrong") is None
+    assert _verify_key(_fake_session([_fake_user("crp_dev_other")]), "crp_dev_wrong") is None
 
 
 def test_verify_key_returns_none_when_table_empty() -> None:
-    session = MagicMock()
-    session.query.return_value.all.return_value = []
-    assert _verify_key(session, "anything") is None
+    assert _verify_key(_fake_session([]), "anything") is None
 
 
 # ---------- FastAPI-integrated tests via dependency overrides ----------
@@ -88,17 +88,11 @@ def test_verify_key_returns_none_when_table_empty() -> None:
 
 @pytest.fixture
 def app_with_session_override() -> TestClient:
-    """TestClient with a controllable in-memory user list.
-
-    Yields a (client, users) tuple so each test can register seeded users for
-    the fake session to return from session.query(AppUser).all().
-    """
+    """TestClient with a controllable in-memory user list (empty by default)."""
     app = get_app()
     users: list[AppUser] = []
-    fake_session = MagicMock()
-    fake_session.query.return_value.all = lambda: users
-    fake_session.commit = MagicMock()
-    app.dependency_overrides[get_db_session] = lambda: fake_session
+    session = _fake_session(users)
+    app.dependency_overrides[get_db_session] = lambda: session
     client = TestClient(app)
     client.users = users  # type: ignore[attr-defined]
     return client
@@ -120,16 +114,13 @@ def test_me_with_valid_key_returns_user_payload() -> None:
     user.first_name = "Alice"
     user.last_name = "Admin"
     user.email = "alice@example.com"
-    # /v1/me reads user.team — attach a minimal stand-in
     team = MagicMock()
     team.id = uuid.uuid4()
     team.name = "Platform Team"
     user.team = team  # type: ignore[assignment]
 
-    fake_session = MagicMock()
-    fake_session.query.return_value.all = lambda: [user]
-    fake_session.commit = MagicMock()
-    app.dependency_overrides[get_db_session] = lambda: fake_session
+    session = _fake_session([user])
+    app.dependency_overrides[get_db_session] = lambda: session
 
     client = TestClient(app)
     response = client.get("/v1/me", headers={"Authorization": "Bearer crp_dev_alice"})
@@ -138,7 +129,7 @@ def test_me_with_valid_key_returns_user_payload() -> None:
     assert body["email"] == "alice@example.com"
     assert body["role"] == "admin"
     assert body["team"]["name"] == "Platform Team"
-    fake_session.commit.assert_called()  # last_seen_at write
+    session.commit.assert_called()  # last_seen_at UPDATE was committed
 
 
 def test_require_admin_rejects_member_role() -> None:
@@ -157,14 +148,13 @@ def test_require_admin_allows_admin_role() -> None:
 
 def test_require_auth_updates_last_seen() -> None:
     user = _fake_user("crp_dev_x")
-    before = datetime.now(timezone.utc)
-
-    session = MagicMock()
-    session.query.return_value.all.return_value = [user]
+    session = _fake_session([user])
 
     request = _make_request("Bearer crp_dev_x")
     ctx = require_auth(request=request, session=session)
+
     assert ctx.user is user
-    assert user.last_seen_at is not None
-    assert user.last_seen_at >= before
+    # last_seen_at is written via session.execute(update(...)) — verify the
+    # session was asked to execute something and then committed.
+    session.execute.assert_called_once()
     session.commit.assert_called_once()
