@@ -32,6 +32,18 @@ variable "oidc_deploy_role_name" {
   default     = "github-actions-ngx"
 }
 
+variable "alert_emails" {
+  description = "Email addresses subscribed to the alerts SNS topic. Each address receives a confirmation email after apply and must click the link before alerts are delivered. Default is empty so stacks without monitoring configured are no-ops."
+  type        = list(string)
+  default     = []
+}
+
+variable "alarms_enabled" {
+  description = "Master switch for all CloudWatch alarms. Set to false in ephemeral dev stacks to suppress alarm noise during teardown/standup cycles."
+  type        = bool
+  default     = true
+}
+
 variable "production_safety" {
   description = "Master switch for two database production-safety flags: deletion_protection and skip_final_snapshot. False during iteration so we can tear down cheaply; flip to true via tfvars before the demo (tracked by issue #20). When true, terraform destroy refuses without an explicit override and any destroy that does proceed automatically takes a final snapshot."
   type        = bool

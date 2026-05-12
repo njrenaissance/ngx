@@ -101,3 +101,23 @@ module "ecs_service" {
   cache_endpoint = module.cache.primary_endpoint_address
   cache_port     = module.cache.primary_port
 }
+
+# CloudWatch alarms + SNS email notifications for all four observable layers:
+# ALB, ECS (api + worker), Aurora, and ElastiCache. The SNS topic is
+# KMS-encrypted with the project CMK. Subscriptions are pending until each
+# address confirms via the email SNS sends after apply.
+module "alerts" {
+  source = "../modules/alerts"
+
+  name_prefix    = local.name_prefix
+  kms_key_arn    = module.kms.key_arn
+  alert_emails   = var.alert_emails
+  alarms_enabled = var.alarms_enabled
+
+  alb_arn_suffix             = module.alb.arn_suffix
+  ecs_cluster_name           = module.ecs_service.cluster_name
+  ecs_api_service_name       = module.ecs_service.service_name
+  ecs_worker_service_name    = module.ecs_service.worker_service_name
+  rds_cluster_identifier     = module.database.cluster_identifier
+  cache_replication_group_id = module.cache.replication_group_id
+}

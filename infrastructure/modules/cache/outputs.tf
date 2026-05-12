@@ -12,3 +12,8 @@ output "security_group_id" {
   description = "Cache SG id. Currently only useful for debugging / cross-module references; not consumed in dev/main.tf today."
   value       = aws_security_group.cache.id
 }
+
+output "replication_group_id" {
+  description = "Elasticache replication group ID. Used as the ReplicationGroupId dimension on ElastiCache CloudWatch metrics."
+  value       = aws_elasticache_replication_group.main.replication_group_id
+}
