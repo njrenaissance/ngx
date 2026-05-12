@@ -141,29 +141,23 @@ def provision_resource(resource_request_id: str) -> str:
 
         # ─── Plan-then-apply ──────────────────────────────────────────────
         runner = TerraformRunner()
-        log_chunks: list[str] = []
         try:
-            init_run = runner.init(workdir)
-            log_chunks.append(f"$ terraform init\n{init_run.stdout}")
-
+            runner.init(workdir)
             plan_path = runner.plan(workdir)
-            # Plan stdout is captured via the runner's _run() side effect
-            # only on failure; on success we don't have a handle to it from
-            # the public plan() method. Note the plan path for the audit log.
-            log_chunks.append(f"$ terraform plan -out=tfplan\nPlan saved to {plan_path.name}")
             deployment.status = "planned"
             session.commit()
 
             deployment.status = "applying"
             session.commit()
             outputs = runner.apply(workdir, plan_path)
-            log_chunks.append("$ terraform apply tfplan\nApply complete.")
 
             deployment.status = "applied"
             # Plaintext bytes in the POC per SPEC §8.3 — column is bytea so
             # the encryption upgrade is field-only, not schema-changing.
             deployment.outputs_encrypted = json.dumps(outputs, sort_keys=True).encode("utf-8")
-            apply_job.log_sanitized = "\n\n".join(log_chunks)
+            # Sanitized init+plan+apply+output stdout from the runner. SPEC
+            # Appendix B rule 1 — guaranteed clean of ARNs/account IDs/regions.
+            apply_job.log_sanitized = runner.cumulative_log()
             apply_job.status = "succeeded"
             apply_job.completed_at = _now()
             deployment.provisioned_at = _now()
@@ -175,15 +169,16 @@ def provision_resource(resource_request_id: str) -> str:
 
         except (TerraformExecutionError, PlanRequiredError) as exc:
             # Both error types carry already-sanitized text. The error
-            # itself goes in last_error; the cumulative log (init/plan/apply
-            # output up to the failure) goes in log_sanitized.
+            # message goes in last_error; the cumulative log of stages that
+            # ran successfully (init, maybe plan) plus a banner for the
+            # failed stage goes in log_sanitized.
             sanitized = getattr(exc, "sanitized_stderr", str(exc))
             stage = getattr(exc, "stage", "plan")
-            log_chunks.append(f"$ terraform {stage} (failed)\n{sanitized}")
+            failure_log = f"{runner.cumulative_log()}\n\n$ terraform {stage} (failed)\n{sanitized}".strip()
 
             deployment.status = "failed"
             deployment.last_error = sanitized
-            apply_job.log_sanitized = "\n\n".join(log_chunks)
+            apply_job.log_sanitized = failure_log
             apply_job.status = "failed"
             apply_job.completed_at = _now()
             rr.status = "failed"

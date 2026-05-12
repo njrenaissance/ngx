@@ -138,6 +138,13 @@ class TerraformRunner:
         # In-memory provenance: (workdir, plan_path) tuples produced by THIS
         # runner instance. apply() must find its plan in here AND on disk.
         self._plans_produced: set[tuple[Path, Path]] = set()
+        # Cumulative sanitized log of every successful subprocess invocation
+        # this runner has issued. provision_resource reads this via
+        # cumulative_log() and persists it as APPLY_JOB.log_sanitized so the
+        # audit trail captures the full init+plan+apply+output stdout, not
+        # just one stage. Failures don't append here — TerraformExecutionError
+        # already carries the sanitized stderr separately.
+        self._log_chunks: list[str] = []
 
     def init(self, workdir: Path) -> CompletedRun:
         """`terraform init` — downloads providers, configures backend."""
@@ -241,4 +248,19 @@ class TerraformRunner:
             # where terraform writes diagnostic detail.
             combined = sanitized_stderr or sanitized_stdout or "(no output)"
             raise TerraformExecutionError(stage=stage, returncode=proc.returncode, sanitized_stderr=combined)
+        # Append a stage banner + sanitized stdout to the cumulative log so
+        # the caller can persist a full audit trail without re-running the
+        # subprocess. We deliberately store sanitized_stdout (not raw) — the
+        # audit log surfaces directly into APPLY_JOB.log_sanitized.
+        self._log_chunks.append(f"$ terraform {stage}\n{sanitized_stdout}")
         return CompletedRun(stdout=sanitized_stdout, stderr=sanitized_stderr, returncode=proc.returncode)
+
+    def cumulative_log(self) -> str:
+        """Sanitized stdout from every successful invocation, in order.
+
+        Used by provision_resource to populate APPLY_JOB.log_sanitized with
+        the full init+plan+apply+output trail. Failed invocations don't
+        appear here — their sanitized stderr lives on the raised
+        TerraformExecutionError instead.
+        """
+        return "\n\n".join(self._log_chunks)

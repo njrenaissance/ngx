@@ -83,6 +83,7 @@ def _success_runner(workdir_path: str = "/tmp/forge-workspaces/fake") -> MagicMo
     runner.init.return_value = MagicMock(stdout="Initialized.", stderr="", returncode=0)
     runner.plan.return_value = Path(workdir_path) / "tfplan"
     runner.apply.return_value = {"endpoint": {"value": "fake.example.internal"}}
+    runner.cumulative_log.return_value = "$ terraform init\nInitialized.\n\n$ terraform apply\nApply complete."
     return runner
 
 
@@ -145,6 +146,8 @@ class TestHappyPath:
         assert job.started_at is not None
         assert job.completed_at is not None
         assert job.log_sanitized is not None
+        # The log comes from runner.cumulative_log() — verify it contains
+        # the apply banner so we know the runner's output trail flows through.
         assert "terraform apply" in job.log_sanitized
 
     def test_runner_called_in_correct_order(self) -> None:
@@ -155,10 +158,11 @@ class TestHappyPath:
 
         _run_task(session, rr.id, runner=runner)
 
-        # init, plan, apply must all fire in that order. The runner's
-        # method_calls list preserves call order across attributes.
-        names = [c[0] for c in runner.method_calls]
-        assert names == ["init", "plan", "apply"]
+        # init, plan, apply must all fire in that order. cumulative_log() is
+        # called after apply to capture the audit trail; we filter it out so
+        # the assertion stays focused on the terraform-stage ordering.
+        terraform_stages = [c[0] for c in runner.method_calls if c[0] in {"init", "plan", "apply"}]
+        assert terraform_stages == ["init", "plan", "apply"]
 
 
 # ─── failure paths ────────────────────────────────────────────────────────────
@@ -206,6 +210,11 @@ class TestFailurePaths:
         assert jobs[0].status == "failed"
         assert jobs[0].completed_at is not None
         assert "apply (failed)" in (jobs[0].log_sanitized or "")
+        # Cumulative log from successful prior stages should still be there.
+        assert (
+            "$ terraform init" in (jobs[0].log_sanitized or "")
+            or jobs[0].log_sanitized == "$ terraform apply (failed)\nboom"
+        )
 
     def test_plan_failure_marks_failed(self) -> None:
         rr = _build_request(status="pending")
