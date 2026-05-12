@@ -18,6 +18,11 @@ down_revision: Union[str, None] = "b2c3d4e5f6a7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+_RR_STATUS_CHECK = (
+    "status IN ('pending','provisioning','provisioned','failed','destroy_requested','destroying','destroyed')"
+)
+_DEPLOY_STATUS_CHECK = "status IN ('pending','provisioned','failed','destroying','destroyed')"
+
 
 def upgrade() -> None:
     op.create_table(
@@ -52,12 +57,16 @@ def upgrade() -> None:
         sa.Column("scheduled_destroy_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(_RR_STATUS_CHECK, name="ck_resource_request_status"),
+        sa.UniqueConstraint("team_id", "name", name="uq_resource_request_team_name"),
     )
 
     op.create_index("ix_resource_request_team_id", "resource_request", ["team_id"])
     op.create_index("ix_resource_request_status", "resource_request", ["status"])
     op.create_index("ix_resource_request_resource_type_id", "resource_request", ["resource_type_id"])
     op.create_index("ix_resource_request_requested_by", "resource_request", ["requested_by"])
+    op.create_index("ix_resource_request_tier_policy_id", "resource_request", ["tier_policy_id"])
+    op.create_index("ix_resource_request_logical_region_id", "resource_request", ["logical_region_id"])
 
     op.create_table(
         "deployment",
@@ -81,6 +90,7 @@ def upgrade() -> None:
         sa.Column("last_error", sa.Text, nullable=True),
         sa.Column("provisioned_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(_DEPLOY_STATUS_CHECK, name="ck_deployment_status"),
         sa.UniqueConstraint("tf_workspace_id", name="uq_deployment_tf_workspace_id"),
         sa.UniqueConstraint("tf_state_key", name="uq_deployment_tf_state_key"),
     )
@@ -103,6 +113,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("az_role", sa.String(16), nullable=False),
+        sa.UniqueConstraint("deployment_id", "az_role", name="uq_deployment_az_role"),
     )
 
     op.create_index("ix_deployment_az_deployment_id", "deployment_az", ["deployment_id"])
@@ -119,7 +130,7 @@ def upgrade() -> None:
         sa.Column("operation", sa.String(16), nullable=False),
         sa.Column("status", sa.String(16), nullable=False),
         sa.Column("runner_id", sa.String(128), nullable=True),
-        sa.Column("attempt_count", sa.Integer, nullable=False, server_default="0"),
+        sa.Column("attempt_count", sa.Integer, nullable=False, server_default=sa.text("0")),
         sa.Column("log_sanitized", sa.Text, nullable=True),
         sa.Column("enqueued_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),

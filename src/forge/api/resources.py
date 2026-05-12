@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/resources", tags=["resources"])
 
-ResourceStatus = Literal["pending", "provisioning", "active", "failed", "destroyed"]
+ResourceStatus = Literal[
+    "pending", "provisioning", "provisioned", "failed", "destroy_requested", "destroying", "destroyed"
+]
 
 
 def _to_detail(rr: ResourceRequest) -> ResourceDetailResponse:

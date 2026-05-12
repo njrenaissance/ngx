@@ -308,6 +308,14 @@ class TestListResources:
         resp = TestClient(app).get("/v1/resources")
         assert resp.status_code == 401
 
+    def test_items_exclude_embargoed_fields(self):
+        rr = _make_resource_request()
+        session = _list_session(rows=[rr], total=1)
+        items = _client_with_session(session).get("/v1/resources").json()["items"]
+        assert len(items) == 1
+        for forbidden in ("provider", "physical_region", "tf_workspace_id", "tf_state_key", "outputs_encrypted"):
+            assert forbidden not in items[0], f"Embargoed field '{forbidden}' leaked into list item"
+
 
 # ── GET /v1/resources/{id} ────────────────────────────────────────────────────
 
