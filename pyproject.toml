@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "forge"
-version = "0.6.0"
+version = "0.7.0"
 description = "Forge — NGX self-service infrastructure provisioning service"
 requires-python = ">=3.12"
 dependencies = [
@@ -65,4 +65,5 @@ addopts = "--cov=forge --cov-report=term-missing"
 markers = [
     "unit: unit tests (fast, no external dependencies)",
     "integration: integration tests (require database, external services)",
+    "no_broker_stub: opt out of the autouse TaskBroker.submit stub (for broker-internals tests)",
 ]

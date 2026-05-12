@@ -11,6 +11,11 @@ import httpx
 BOB_KEY = "crp_87435518f7b581136434fcf3af2bad34"
 AUTH = {"Authorization": f"Bearer {BOB_KEY}"}
 
+# Any state the worker can have transiently set the row to since #28E wired
+# Celery in. The POST response itself always returns "pending" — the worker
+# can flip the row before subsequent GETs land.
+_LIFECYCLE_STATES = {"pending", "provisioning", "provisioned"}
+
 
 def test_post_then_get_resource(forge_url: str) -> None:
     payload = {
@@ -24,6 +29,7 @@ def test_post_then_get_resource(forge_url: str) -> None:
     create = httpx.post(f"{forge_url}/v1/resources", json=payload, headers=AUTH)
     assert create.status_code == 202, create.text
     created = create.json()
+    # The POST response is built from the row state pre-enqueue; it's deterministic.
     assert created["status"] == "pending"
     assert "resource_id" in created
     resource_id = created["resource_id"]
@@ -37,7 +43,9 @@ def test_post_then_get_resource(forge_url: str) -> None:
     assert body["resource_type"] == "managed_database"
     assert body["tier"] == "tier2"
     assert body["logical_region"] == "ngx-region-1a"
-    assert body["status"] == "pending"
+    # The worker may have already advanced the row by the time we GET. Accept
+    # any state in the forward lifecycle.
+    assert body["status"] in _LIFECYCLE_STATES
     # Cloud coordinate embargo — these must never appear in responses.
     for forbidden in ("provider", "physical_region", "tf_workspace_id", "tf_state_key", "outputs_encrypted"):
         assert forbidden not in body, f"Embargoed field '{forbidden}' leaked in detail response"
@@ -45,13 +53,9 @@ def test_post_then_get_resource(forge_url: str) -> None:
     status_resp = httpx.get(f"{forge_url}/v1/resources/{resource_id}/status", headers=AUTH)
     assert status_resp.status_code == 200, status_resp.text
     status_body = status_resp.json()
-    assert status_body["status"] == "pending"
+    assert status_body["status"] in _LIFECYCLE_STATES
     assert status_body["resource_id"] == resource_id
-
-    listing = httpx.get(f"{forge_url}/v1/resources?status=pending", headers=AUTH)
-    assert listing.status_code == 200, listing.text
-    items = listing.json()["items"]
-    assert any(item["resource_id"] == resource_id for item in items)
+    # End-to-end polling is exercised in test_provisioning_flow_wiring.py.
 
 
 def test_post_with_team_id_in_body_returns_400(forge_url: str) -> None:
