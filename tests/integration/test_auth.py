@@ -2,7 +2,8 @@
 
 Requires the full compose stack (postgres + api) and seeded data.
 Valid-key tests use Bob Builder (member role, Platform Team) from the
-dev seed fixtures — key: crp_dev_b0b00000000000000000000000000000.
+dev seed fixtures. The plaintext key is stored in db/seed-plaintext-keys.txt
+(gitignored) — copy it here to run integration tests locally.
 
 Note on 403: /v1/me uses require_auth (not require_admin), so it never
 returns 403. Tests for 403 belong with the first admin-only endpoint
@@ -11,8 +12,8 @@ landing in #28C+.
 
 import httpx
 
-BOB_KEY = "crp_dev_b0b00000000000000000000000000000"
-BAD_KEY = "crp_dev_notavalidkey00000000000000000"
+BOB_KEY = "crp_87435518f7b581136434fcf3af2bad34"
+BAD_KEY = "crp_notavalidkey0000000000000000000"
 
 
 def test_me_without_auth_returns_401(forge_url: str) -> None:

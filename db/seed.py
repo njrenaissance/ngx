@@ -5,10 +5,12 @@ Run with:  uv run python db/seed.py
 Reads fixtures from db/seed.json if it exists, otherwise falls back to
 db/seed.json.example (the committed dev defaults).
 
-Copy seed.json.example to seed.json and edit it to change passwords or add
-teams/users. seed.json is gitignored — never commit real credentials.
+User entries must supply a pre-computed bcrypt hash in the `api_key_hash`
+field. Plaintext keys are never stored in fixture files — generate hashes
+with: python -c "import bcrypt; print(bcrypt.hashpw(b'<key>', bcrypt.gensalt(12)).decode())"
 
-These are DEV-ONLY keys. Never use crp_dev_* keys in any non-local environment.
+Copy seed.json.example to seed.json to override fixtures locally.
+seed.json is gitignored — never commit it.
 """
 
 import json
@@ -18,7 +20,6 @@ from pathlib import Path
 # Make sure the src/ tree is importable when running from repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import bcrypt  # noqa: E402  (after sys.path patch)
 from sqlalchemy.orm import Session  # noqa: E402
 
 from forge.db import SyncSession, sync_engine  # noqa: E402
@@ -44,11 +45,7 @@ def _load_fixtures() -> dict:
     return json.loads(seed_file.read_text(encoding="utf-8"))
 
 
-def _hash(raw_key: str) -> str:
-    return bcrypt.hashpw(raw_key.encode(), bcrypt.gensalt(rounds=12)).decode()
-
-
-def seed(session: Session, fixtures: dict) -> list[tuple[str, str, str, str, str]]:
+def seed(session: Session, fixtures: dict) -> list[tuple[str, str, str, str]]:
     cc_by_code: dict[str, CostCenter] = {}
     for cc_data in fixtures["cost_centers"]:
         cc = CostCenter(
@@ -71,15 +68,14 @@ def seed(session: Session, fixtures: dict) -> list[tuple[str, str, str, str, str
         team_by_name[team.name] = team
     session.flush()
 
-    rows: list[tuple[str, str, str, str, str]] = []
+    rows: list[tuple[str, str, str, str]] = []
     for u_data in fixtures["users"]:
-        raw_key = u_data["api_key"]
         user = AppUser(
             team_id=team_by_name[u_data["team"]].id,
             first_name=u_data["first_name"],
             last_name=u_data["last_name"],
             email=u_data["email"],
-            api_key_hash=_hash(raw_key),
+            api_key_hash=u_data["api_key_hash"],
             role=u_data["role"],
         )
         session.add(user)
@@ -89,7 +85,6 @@ def seed(session: Session, fixtures: dict) -> list[tuple[str, str, str, str, str
                 u_data["email"],
                 u_data["role"],
                 u_data["team"],
-                raw_key,
             )
         )
     session.commit()
@@ -184,10 +179,10 @@ def main() -> None:
             print("Seeding identity data ...")
             rows = seed(session, fixtures)
             print("\nIdentity seed complete.\n")
-            print(f"{'Name':<20} {'Email':<25} {'Role':<8} {'Team':<16} API Key")
-            print("-" * 100)
-            for name, email, role, team, key in rows:
-                print(f"{name:<20} {email:<25} {role:<8} {team:<16} {key}")
+            print(f"{'Name':<20} {'Email':<25} {'Role':<8} {'Team':<16}")
+            print("-" * 75)
+            for name, email, role, team in rows:
+                print(f"{name:<20} {email:<25} {role:<8} {team:<16}")
             print()
 
         existing_tiers = session.query(TierPolicy).count()
