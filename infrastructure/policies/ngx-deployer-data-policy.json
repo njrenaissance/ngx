@@ -11,6 +11,7 @@
                 "s3:GetBucketPolicy",
                 "s3:GetBucketLocation",
                 "s3:GetBucketTagging",
+                "s3:GetLifecycleConfiguration",
                 "s3:ListBucket",
                 "s3:GetObject"
             ],
@@ -27,7 +28,8 @@
                 "s3:PutEncryptionConfiguration",
                 "s3:PutBucketPolicy",
                 "s3:DeleteBucketPolicy",
-                "s3:PutBucketTagging"
+                "s3:PutBucketTagging",
+                "s3:PutLifecycleConfiguration"
             ],
             "Resource": "arn:aws:s3:::forge-*"
         },
