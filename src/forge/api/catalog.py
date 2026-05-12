@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from forge.api.auth import AuthContext, require_auth
 from forge.api.deps import get_db_session
@@ -29,7 +30,7 @@ def _rt_response(rt: ResourceType, schema: dict) -> ResourceTypeResponse:
 )
 def list_regions(
     auth: AuthContext = Depends(require_auth),
-    session=Depends(get_db_session),
+    session: Session = Depends(get_db_session),
 ) -> list[RegionResponse]:
     regions = (
         session.query(LogicalRegion)
@@ -49,9 +50,9 @@ def list_regions(
 )
 def list_tiers(
     auth: AuthContext = Depends(require_auth),
-    session=Depends(get_db_session),
+    session: Session = Depends(get_db_session),
 ) -> list[TierResponse]:
-    tiers = session.query(TierPolicy).all()
+    tiers = session.query(TierPolicy).order_by(TierPolicy.tier_name).all()
     return [TierResponse.model_validate(t) for t in tiers]
 
 
@@ -62,7 +63,7 @@ def list_tiers(
 )
 def list_resource_types(
     auth: AuthContext = Depends(require_auth),
-    session=Depends(get_db_session),
+    session: Session = Depends(get_db_session),
 ) -> list[ResourceTypeResponse]:
     types = session.query(ResourceType).filter(ResourceType.active.is_(True), ResourceType.latest.is_(True)).all()
     return [_rt_response(rt, rt.base_config_schema) for rt in types]
@@ -80,7 +81,7 @@ def get_resource_type(
     name: str,
     tier: str | None = None,
     auth: AuthContext = Depends(require_auth),
-    session=Depends(get_db_session),
+    session: Session = Depends(get_db_session),
 ) -> ResourceTypeResponse:
     rt = (
         session.query(ResourceType)
@@ -105,6 +106,9 @@ def get_resource_type(
             session.query(ResourceTypeTierConstraint).filter_by(resource_type_id=rt.id, tier_policy_id=tp.id).first()
         )
         if constraint is not None:
+            # Shallow merge: override keys replace base keys wholesale. Constraints
+            # are expected to replace entire sub-keys (e.g. the full "properties" dict),
+            # not add individual leaf properties alongside existing ones.
             schema = {**schema, **constraint.config_schema_override}
 
     return _rt_response(rt, schema)

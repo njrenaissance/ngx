@@ -157,14 +157,14 @@ class TestListTiers:
     def test_returns_200(self):
         tier = _make_tier()
         session = MagicMock()
-        session.query.return_value.all.return_value = [tier]
+        session.query.return_value.order_by.return_value.all.return_value = [tier]
         resp = _client_with_session(session).get("/v1/catalog/tiers")
         assert resp.status_code == 200
 
     def test_response_excludes_min_azs_per_region(self):
         tier = _make_tier()
         session = MagicMock()
-        session.query.return_value.all.return_value = [tier]
+        session.query.return_value.order_by.return_value.all.return_value = [tier]
         body = _client_with_session(session).get("/v1/catalog/tiers").json()
         assert "min_azs_per_region" not in body[0]
 
