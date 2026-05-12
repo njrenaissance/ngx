@@ -12,3 +12,12 @@ environment = "dev"
 #   Pinned version:
 #     app_image = "328926346833.dkr.ecr.us-east-1.amazonaws.com/forge-dev:0.1.0"
 app_image = "328926346833.dkr.ecr.us-east-1.amazonaws.com/forge-dev:latest"
+
+# Managed-resources backend (issue #51 / E.3). Read from `terraform output`
+# in infrastructure/bootstrap/ after the bootstrap apply, or query directly:
+#   terraform -chdir=infrastructure/bootstrap output managed_resources_bucket_name
+#   terraform -chdir=infrastructure/bootstrap output managed_resources_bucket_region
+#   terraform -chdir=infrastructure/bootstrap output managed_resources_kms_key_arn
+managed_resources_bucket      = "forge-managed-resources-328926346833"
+managed_resources_region      = "us-east-1"
+managed_resources_kms_key_arn = "arn:aws:kms:us-east-1:328926346833:key/REPLACE-WITH-KMS-KEY-UUID"

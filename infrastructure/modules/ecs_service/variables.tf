@@ -93,3 +93,20 @@ variable "cache_port" {
   type        = number
   default     = 6379
 }
+
+# ─── Managed-resources backend (issue #51 / E.3) ──────────────────────────────
+
+variable "managed_resources_bucket" {
+  description = "Name of the S3 bucket holding worker-produced per-resource Terraform state. Created by infrastructure/bootstrap. Wired into worker task env as FORGE_TERRAFORM__MANAGED_RESOURCES_BUCKET; worker task role gets s3:GetObject/PutObject/DeleteObject/ListBucket scoped to this bucket."
+  type        = string
+}
+
+variable "managed_resources_region" {
+  description = "Region the managed-resources bucket lives in. Wired into worker task env as FORGE_TERRAFORM__MANAGED_RESOURCES_REGION so the worker-rendered backend.tf points at the correct regional S3 endpoint."
+  type        = string
+}
+
+variable "managed_resources_kms_key_arn" {
+  description = "ARN of the CMK encrypting the managed-resources bucket. Worker task role gets kms:Encrypt/Decrypt/GenerateDataKey/DescribeKey on this key so SSE-KMS reads/writes succeed."
+  type        = string
+}
