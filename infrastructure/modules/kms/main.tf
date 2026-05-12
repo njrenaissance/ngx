@@ -54,7 +54,7 @@ locals {
 }
 
 resource "aws_kms_key" "main" {
-  description             = "Forge ${var.environment} CMK — Aurora storage, Secrets Manager, CloudWatch Logs"
+  description             = "Forge ${var.environment} CMK — Aurora storage, Secrets Manager, CloudWatch Logs, SNS alerts topic"
   deletion_window_in_days = var.deletion_window_in_days
   enable_key_rotation     = true
   key_usage               = "ENCRYPT_DECRYPT"
@@ -69,7 +69,7 @@ resource "aws_kms_key" "main" {
   #      that manage this key (typically the OIDC deploy role). Management
   #      actions only — no Encrypt/Decrypt. Day-to-day Terraform operations
   #      flow through THIS path, not the safety-net root statement.
-  #   3-5. Service Key Users — RDS / Secrets Manager / CloudWatch Logs.
+  #   3-6. Service Key Users — RDS / Secrets Manager / CloudWatch Logs / SNS.
   #      Encrypt/Decrypt only — these principals can't change the key.
   policy = jsonencode({
     Version = "2012-10-17"
@@ -119,6 +119,16 @@ resource "aws_kms_key" "main" {
             "kms:ReEncrypt*",
             "kms:GenerateDataKey*",
             "kms:DescribeKey",
+          ]
+          Resource = "*"
+        },
+        {
+          Sid       = "AllowSNSEncryptDecrypt"
+          Effect    = "Allow"
+          Principal = { Service = "sns.amazonaws.com" }
+          Action = [
+            "kms:GenerateDataKey*",
+            "kms:Decrypt",
           ]
           Resource = "*"
         },

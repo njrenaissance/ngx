@@ -45,3 +45,8 @@ output "cluster_resource_id" {
   description = "Cluster resource ID — used by IAM database authentication when that lands in a future PR."
   value       = aws_rds_cluster.main.cluster_resource_id
 }
+
+output "cluster_identifier" {
+  description = "Aurora cluster identifier (e.g. forge-dev-aurora). Used as the DBClusterIdentifier dimension on RDS CloudWatch metrics."
+  value       = aws_rds_cluster.main.cluster_identifier
+}

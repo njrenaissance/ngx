@@ -1,0 +1,57 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "SNSTopicManagement",
+            "Effect": "Allow",
+            "Action": [
+                "sns:CreateTopic",
+                "sns:DeleteTopic",
+                "sns:GetTopicAttributes",
+                "sns:SetTopicAttributes",
+                "sns:ListTagsForResource",
+                "sns:TagResource",
+                "sns:UntagResource",
+                "sns:GetDataProtectionPolicy",
+                "sns:PutDataProtectionPolicy"
+            ],
+            "Resource": "arn:aws:sns:*:328926346833:forge-*"
+        },
+        {
+            "Sid": "SNSSubscriptionManagement",
+            "Effect": "Allow",
+            "Action": [
+                "sns:Subscribe",
+                "sns:Unsubscribe",
+                "sns:GetSubscriptionAttributes",
+                "sns:ListSubscriptionsByTopic"
+            ],
+            "Resource": "arn:aws:sns:*:328926346833:forge-*"
+        },
+        {
+            "Sid": "SNSTopicPolicyManagement",
+            "Effect": "Allow",
+            "Action": [
+                "sns:GetTopicAttributes",
+                "sns:SetTopicAttributes"
+            ],
+            "Resource": "arn:aws:sns:*:328926346833:forge-*"
+        },
+        {
+            "Sid": "CloudWatchAlarmsManagement",
+            "Effect": "Allow",
+            "Action": [
+                "cloudwatch:PutMetricAlarm",
+                "cloudwatch:DeleteAlarms",
+                "cloudwatch:DescribeAlarms",
+                "cloudwatch:DescribeAlarmsForMetric",
+                "cloudwatch:EnableAlarmActions",
+                "cloudwatch:DisableAlarmActions",
+                "cloudwatch:ListTagsForResource",
+                "cloudwatch:TagResource",
+                "cloudwatch:UntagResource"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
