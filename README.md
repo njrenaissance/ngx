@@ -173,7 +173,6 @@ to respond, runs the suite, and tears the stack down on session exit.
 |---|---|---|
 | `FORGE_APP_NAME` | `Forge` | Service identity in `/livez` response |
 | `FORGE_ENVIRONMENT` | `dev` | Free-form environment label |
-| `FORGE_LOG_LEVEL` | `INFO` | uvicorn + app log level |
 | `FORGE_HOST` | `0.0.0.0` | Bind address |
 | `FORGE_PORT` | `8000` | Bind port (both host and container) |
 | `FORGE_RELOAD` | `false` | `true` enables uvicorn auto-reload (dev only) |
@@ -204,6 +203,34 @@ to respond, runs the suite, and tears the stack down on session exit.
 | `FORGE_CELERY__TASK_DEFAULT_QUEUE` | `provisioning` | Queue name — must match the `-Q` flag on the worker's `celery` command |
 | `FORGE_CELERY__TASK_TIME_LIMIT` | `1800` | Hard kill limit in seconds (30 min) — covers a slow `terraform apply` |
 | `FORGE_CELERY__TASK_SOFT_TIME_LIMIT` | `1500` | Soft limit in seconds (25 min) — raises `SoftTimeLimitExceeded` so the task can clean up before the hard kill |
+
+### Logging (`FORGE_LOG__*`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FORGE_LOG__LEVEL` | `DEBUG` | Root logger level — `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`. Also passed to uvicorn's `--log-level`. Default is `DEBUG` to surface lifecycle events in production; bump to `INFO` once the system is stable. |
+| `FORGE_LOG__JSON_INDENT` | *(unset)* | Pretty-prints JSON logs across multiple lines when set (e.g. `2`). **Leave unset in production** — log aggregators expect one JSON record per line. Negative values are rejected at config-load. |
+
+#### Log output format
+
+Every log line is a single JSON object on stdout (NDJSON / JSONL). Standard fields:
+
+| Field | Description |
+|---|---|
+| `timestamp` | ISO 8601 with UTC offset (e.g. `2026-05-12T14:49:40.099908+00:00`) |
+| `level` | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL` |
+| `logger` | Dotted logger name, typically the module `__name__` (e.g. `forge.workers`) |
+| `message` | Formatted log message string |
+| `exc_info` | *(optional)* Full traceback as a single string with embedded `\n` newlines. JSON-safe — newlines stay escaped inside the value, the record itself stays one line. |
+| *anything else* | Any keys passed via `extra={}` are merged at the top level (e.g. `resource_id`, `celery_task_id`, `tier`, `deployment_id`). |
+
+Aggregator tip: CloudWatch Logs Insights, Datadog, and Loki all parse NDJSON natively — no custom parser needed.
+
+#### Default level trade-off
+
+`DEBUG` is the default so that lifecycle events (app startup, db engine init, Celery worker ready, status transitions) surface in production logs out of the box, which matters for a service in early operational maturity. The trade-off is volume: SQLAlchemy pool checkouts, Celery introspection, and uvicorn request logs all emit at DEBUG and can dominate ingestion costs.
+
+When the system stabilises and you no longer need lifecycle visibility for every deploy, set `FORGE_LOG__LEVEL=INFO` in the relevant environment (ECS task definition, `.env`, `docker-compose`). The application's own lifecycle records are emitted at `INFO`, so you keep the operationally interesting events while dropping the DEBUG firehose.
 
 ---
 

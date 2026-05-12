@@ -1,12 +1,11 @@
-import logging
-
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from forge.config import settings
+from forge.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Sync engine — used by Alembic migrations and the seed script.
 # The async engine (asyncpg) will be added here when async API endpoints land.
@@ -19,6 +18,19 @@ sync_engine = create_engine(
 )
 
 SyncSession: sessionmaker[Session] = sessionmaker(bind=sync_engine, expire_on_commit=False)
+
+logger.debug(
+    "database engine initialised",
+    extra={
+        "db_host": settings.database.HOST,
+        "db_port": settings.database.PORT,
+        "db_name": settings.database.NAME,
+        "db_schema": settings.database.SCHEMA,
+        "ssl_mode": settings.database.SSL_MODE,
+        "pool_timeout": settings.database.POOL_TIMEOUT,
+        "pool_recycle": settings.database.POOL_RECYCLE,
+    },
+)
 
 
 def readiness_check() -> tuple[bool, str]:
@@ -41,5 +53,8 @@ def readiness_check() -> tuple[bool, str]:
         # underlying socket failures (refused, reset, DNS). KeyboardInterrupt
         # and SystemExit must propagate, so we deliberately do NOT catch
         # bare Exception.
-        logger.warning("Database readiness check failed: %s", e)
+        logger.warning(
+            "database readiness check failed",
+            extra={"host": settings.database.HOST, "port": settings.database.PORT, "error": str(e)},
+        )
         return (False, str(e))

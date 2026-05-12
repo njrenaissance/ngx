@@ -16,7 +16,7 @@ def main() -> None:
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.RELOAD,
-        log_level=settings.LOG_LEVEL.lower(),
+        log_level=settings.log.LEVEL.lower(),
     )
 
 

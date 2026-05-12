@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -23,7 +23,6 @@ from pydantic_settings.sources import InitSettingsSource
 DEFAULT_SETTINGS: dict[str, Any] = {
     "APP_NAME": "Forge",
     "ENVIRONMENT": "dev",
-    "LOG_LEVEL": "INFO",
     "HOST": "0.0.0.0",
     "PORT": 8000,
     "RELOAD": False,
@@ -61,6 +60,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "MANAGED_RESOURCES_REGION": "",
         "PACKAGES_DIR": "./packages",
     },
+    "log": {
+        # DEBUG default surfaces startup, db init, task lifecycle, and AZ
+        # selection events in production logs. Bump to INFO/WARNING via
+        # FORGE_LOG__LEVEL once the system is stable and the noise becomes
+        # a cost concern.
+        "LEVEL": "DEBUG",
+        "JSON_INDENT": None,
+    },
 }
 
 # Top-level keys whose values are nested settings dicts (not Settings fields).
@@ -69,7 +76,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 # treated as a flat Settings field and flows into the top-level baseline.
 # Failing to add a new nested class here means its defaults dict would leak
 # into Settings as a stray field at construction time.
-_NESTED_SETTINGS_KEYS: frozenset[str] = frozenset({"database", "celery", "terraform"})
+_NESTED_SETTINGS_KEYS: frozenset[str] = frozenset({"database", "celery", "terraform", "log"})
 
 
 def _build_customise_sources(defaults_key: str):
@@ -97,6 +104,41 @@ def _build_customise_sources(defaults_key: str):
         )
 
     return _customise
+
+
+class LogSettings(BaseSettings):
+    """Structured JSON logging settings.
+
+    Baseline values live in DEFAULT_SETTINGS["log"]. Override at runtime via
+    FORGE_LOG__LEVEL and FORGE_LOG__JSON_INDENT environment variables.
+
+    Direct construction note: always import via `from forge.config import settings`.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="FORGE_LOG__",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    LEVEL: str
+    # Pretty-prints JSON across multiple lines when set (useful for local
+    # eyeballing). MUST stay None in production: log aggregators (CloudWatch,
+    # Datadog, etc.) parse one JSON record per line and an indented record
+    # spans many lines, breaking ingestion.
+    JSON_INDENT: int | None = None
+
+    @field_validator("JSON_INDENT")
+    @classmethod
+    def _indent_non_negative(cls, v: int | None) -> int | None:
+        # json.dumps accepts any int but negative values produce a confusing
+        # mix (no indent + leading newlines). Reject loud at config-load.
+        if v is not None and v < 0:
+            raise ValueError("JSON_INDENT must be None or >= 0")
+        return v
+
+    settings_customise_sources = _build_customise_sources("log")
 
 
 class CelerySettings(BaseSettings):
@@ -237,7 +279,7 @@ class Settings(BaseSettings):
 
     Resolution order (highest wins):
       1. Init kwargs passed to Settings(...)
-      2. Environment variables (FORGE_APP_NAME, FORGE_LOG_LEVEL, ...)
+      2. Environment variables (FORGE_APP_NAME, FORGE_LOG__LEVEL, ...)
       3. .env file (FORGE_ prefix also applies)
       4. DEFAULT_SETTINGS dict (lowest priority)
     """
@@ -251,7 +293,6 @@ class Settings(BaseSettings):
 
     APP_NAME: str
     ENVIRONMENT: str
-    LOG_LEVEL: str
     HOST: str
     PORT: int
     RELOAD: bool
@@ -272,6 +313,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # type: ignore[call-arg]
     celery: CelerySettings = Field(default_factory=lambda: CelerySettings())  # type: ignore[call-arg]
     terraform: TerraformSettings = Field(default_factory=lambda: TerraformSettings())  # type: ignore[call-arg]
+    log: LogSettings = Field(default_factory=lambda: LogSettings())  # type: ignore[call-arg]
 
     @classmethod
     def settings_customise_sources(
