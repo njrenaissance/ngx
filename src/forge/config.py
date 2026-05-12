@@ -9,6 +9,107 @@ from pydantic_settings import (
 )
 from pydantic_settings.sources import InitSettingsSource
 
+# Baseline configuration — lowest-priority layer. Environment variables
+# (prefixed FORGE_) and an optional .env file override these per-field.
+#
+# Nested settings classes (database, celery) draw their defaults from the
+# matching nested dict here via _NestedDefaultsMixin. PASSWORD and the
+# Celery broker URLs default to empty strings so the process boots;
+# connect-time failures surface missing config.
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "APP_NAME": "Forge",
+    "ENVIRONMENT": "dev",
+    "LOG_LEVEL": "INFO",
+    "HOST": "0.0.0.0",
+    "PORT": 8000,
+    "RELOAD": False,
+    "REQUEST_TIMEOUT": 30,
+    "KEEPALIVE_TIMEOUT": 2,
+    "SHUTDOWN_TIMEOUT": 25,
+    "database": {
+        "HOST": "localhost",
+        "PORT": 5432,
+        "NAME": "forge",
+        "USER": "forge",
+        "PASSWORD": "",
+        "SSL_MODE": "disable",
+        "SCHEMA": "public",
+        "CONNECT_TIMEOUT": 10,
+        "POOL_TIMEOUT": 30,
+        "POOL_RECYCLE": 1800,
+    },
+    "celery": {
+        "BROKER_URL": "",
+        "TASK_DEFAULT_QUEUE": "provisioning",
+        "TASK_TIME_LIMIT": 1800,  # 30 min hard kill — covers a slow terraform apply
+        "TASK_SOFT_TIME_LIMIT": 1500,  # 25 min soft — leaves room for in-task cleanup
+    },
+}
+
+
+def _build_customise_sources(defaults_key: str):
+    """Return a settings_customise_sources classmethod that pulls baselines
+    from DEFAULT_SETTINGS[defaults_key] at the lowest priority.
+
+    Resolution order (highest wins): init_kwargs > env > .env > DEFAULT_SETTINGS.
+    """
+
+    @classmethod  # type: ignore[misc]
+    def _customise(
+        _cls: type[BaseSettings],
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            file_secret_settings,
+            InitSettingsSource(settings_cls, init_kwargs=DEFAULT_SETTINGS[defaults_key]),
+        )
+
+    return _customise
+
+
+class CelerySettings(BaseSettings):
+    """Celery / Redis broker settings.
+
+    Local dev points BROKER_URL at the docker-compose redis service.
+    Production points it at an AWS Elasticache for Redis primary endpoint
+    via the ECS task definition. Use rediss:// for TLS — the app has no
+    transport-mode branches.
+
+    The result backend is derived from DatabaseSettings.sync_url at app
+    startup (see forge.workers.__init__) so we reuse the same Aurora
+    cluster for task results.
+
+    Baseline values live in DEFAULT_SETTINGS["celery"]. Env vars
+    (FORGE_CELERY__BROKER_URL etc.) override them at runtime.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="FORGE_CELERY__",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    BROKER_URL: str
+    TASK_DEFAULT_QUEUE: str
+    # Hard time limit in seconds — Celery SIGKILLs the worker child after
+    # this. Long enough for `terraform apply` on a database to finish,
+    # short enough to recover a stuck worker. Tune per environment via
+    # FORGE_CELERY__TASK_TIME_LIMIT.
+    TASK_TIME_LIMIT: int
+    # Soft time limit raises SoftTimeLimitExceeded inside the task so it
+    # can clean up before the hard kill. Should be lower than TASK_TIME_LIMIT.
+    TASK_SOFT_TIME_LIMIT: int
+
+    settings_customise_sources = _build_customise_sources("celery")
+
 
 class DatabaseSettings(BaseSettings):
     """Database connection settings.
@@ -16,8 +117,8 @@ class DatabaseSettings(BaseSettings):
     Reads from environment variables with the FORGE_DATABASE__ prefix, e.g.:
       FORGE_DATABASE__HOST, FORGE_DATABASE__PORT, FORGE_DATABASE__PASSWORD
 
-    Shares the FORGE_ namespace with Settings so all app config lives under
-    one prefix. Nested in Settings via Field(default_factory=...).
+    Baseline values live in DEFAULT_SETTINGS["database"]. Env vars override
+    them at runtime.
     """
 
     model_config = SettingsConfigDict(
@@ -27,18 +128,20 @@ class DatabaseSettings(BaseSettings):
         extra="ignore",
     )
 
-    HOST: str = "localhost"
-    PORT: int = 5432
-    NAME: str = "forge"
-    USER: str = "forge"
-    PASSWORD: str = ""
-    SSL_MODE: str = "disable"
-    SCHEMA: str = "public"
+    HOST: str
+    PORT: int
+    NAME: str
+    USER: str
+    PASSWORD: str
+    SSL_MODE: str
+    SCHEMA: str
 
     # Connection pool — tune for Aurora Serverless v2 idle-connection behaviour.
-    CONNECT_TIMEOUT: int = 10  # seconds to wait for TCP connect to the DB host
-    POOL_TIMEOUT: int = 30  # seconds a caller waits when the pool is exhausted
-    POOL_RECYCLE: int = 1800  # recycle connections every 30 min (< Aurora idle timeout)
+    CONNECT_TIMEOUT: int  # seconds to wait for TCP connect to the DB host
+    POOL_TIMEOUT: int  # seconds a caller waits when the pool is exhausted
+    POOL_RECYCLE: int  # recycle interval (< Aurora idle timeout)
+
+    settings_customise_sources = _build_customise_sources("database")
 
     @property
     def url(self) -> str:
@@ -56,21 +159,6 @@ class DatabaseSettings(BaseSettings):
         if self.SCHEMA != "public":
             params.append(f"options=-csearch_path%3D{self.SCHEMA}")
         return base + "?" + "&".join(params)
-
-
-# Baseline configuration — lowest-priority layer. Environment variables
-# (prefixed FORGE_) and an optional .env file override these.
-DEFAULT_SETTINGS: dict[str, Any] = {
-    "APP_NAME": "Forge",
-    "ENVIRONMENT": "dev",
-    "LOG_LEVEL": "INFO",
-    "HOST": "0.0.0.0",
-    "PORT": 8000,
-    "RELOAD": False,
-    "REQUEST_TIMEOUT": 30,
-    "KEEPALIVE_TIMEOUT": 2,
-    "SHUTDOWN_TIMEOUT": 25,
-}
 
 
 class Settings(BaseSettings):
@@ -108,7 +196,10 @@ class Settings(BaseSettings):
     KEEPALIVE_TIMEOUT: int
     SHUTDOWN_TIMEOUT: int
 
-    database: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    # Nested classes own their own env-var loading and DEFAULT_SETTINGS lookup
+    # via _build_customise_sources. They construct themselves from () here.
+    database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # type: ignore[call-arg]
+    celery: CelerySettings = Field(default_factory=lambda: CelerySettings())  # type: ignore[call-arg]
 
     @classmethod
     def settings_customise_sources(
@@ -120,12 +211,14 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         # First tuple element has highest priority; DEFAULT_SETTINGS goes last.
+        # Only top-level keys flow in here — nested classes handle their own.
+        top_level_defaults = {k: v for k, v in DEFAULT_SETTINGS.items() if not isinstance(v, dict)}
         return (
             init_settings,
             env_settings,
             dotenv_settings,
             file_secret_settings,
-            InitSettingsSource(settings_cls, init_kwargs=DEFAULT_SETTINGS),
+            InitSettingsSource(settings_cls, init_kwargs=top_level_defaults),
         )
 
 

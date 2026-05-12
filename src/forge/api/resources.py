@@ -159,7 +159,12 @@ def create_resource(
     session.commit()
     session.refresh(rr)
 
-    # TODO(#28E): celery.send_task("provision_resource", kwargs={"resource_request_id": str(rr.id)})
+    # Local import — the celery app pulls broker settings at import time, and
+    # tests that don't need the broker should not pay that cost (and may run
+    # with FORGE_CELERY__BROKER_URL unset).
+    from forge.workers.broker import get_task_broker
+
+    get_task_broker().submit("provision_resource", kwargs={"resource_request_id": str(rr.id)})
 
     return ResourceCreateResponse(
         resource_id=rr.id,

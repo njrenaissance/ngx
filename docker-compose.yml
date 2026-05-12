@@ -16,6 +16,19 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    # Local-only broker for Celery. Production uses AWS Elasticache for Redis;
+    # both targets are reached via FORGE_CELERY__BROKER_URL / RESULT_BACKEND.
+    image: redis:7-alpine
+    container_name: forge-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   api:
     build:
       context: .
@@ -39,10 +52,13 @@ services:
       FORGE_DATABASE__USER: forge
       FORGE_DATABASE__PASSWORD: forge
       FORGE_DATABASE__SSL_MODE: disable
+      FORGE_CELERY__BROKER_URL: ${FORGE_CELERY__BROKER_URL:-redis://redis:6379/0}
     volumes:
       - ./src:/app/src:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -56,6 +72,50 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  worker:
+    # Same image as api; only the entrypoint differs. Keeps Python deps,
+    # config loading, and (later) the terraform binary in lockstep.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: forge:local
+    container_name: forge-worker
+    command:
+      [
+        "celery",
+        "-A",
+        "forge.workers",
+        "worker",
+        "--loglevel=info",
+        "--concurrency=2",
+        "-Q",
+        "provisioning",
+      ]
+    environment:
+      FORGE_APP_NAME: ${FORGE_APP_NAME:-Forge}
+      FORGE_ENVIRONMENT: ${FORGE_ENVIRONMENT:-dev}
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-INFO}
+      FORGE_DATABASE__HOST: postgres
+      FORGE_DATABASE__PORT: 5432
+      FORGE_DATABASE__NAME: forge
+      FORGE_DATABASE__USER: forge
+      FORGE_DATABASE__PASSWORD: forge
+      FORGE_DATABASE__SSL_MODE: disable
+      FORGE_CELERY__BROKER_URL: ${FORGE_CELERY__BROKER_URL:-redis://redis:6379/0}
+    volumes:
+      - ./src:/app/src:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "celery", "-A", "forge.workers", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
 volumes:
   postgres_data:
