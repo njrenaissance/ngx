@@ -17,6 +17,27 @@ Each log line is a single JSON object on stdout:
     {"timestamp": "...", "level": "INFO", "logger": "forge.db", "message": "...", "resource_id": "abc"}
 
 Extra keys passed via extra={} are merged into the top-level JSON object.
+
+Output schema (one JSON object per line):
+    timestamp  ISO 8601 with UTC offset, e.g. "2026-05-12T14:49:40.099908+00:00"
+    level      "DEBUG" / "INFO" / "WARNING" / "ERROR" / "CRITICAL"
+    logger     dotted logger name, typically the module __name__
+    message    the formatted log message string
+    exc_info   (optional) full traceback as a single string with embedded
+               '\\n' newlines. Present iff the caller used logger.exception()
+               or passed exc_info=True. JSON-safe — newlines stay escaped
+               inside the string value, so the record remains one line.
+    *          any extra={} keys passed by the caller are merged at the top
+               level. Reserved key names that collide with stdlib LogRecord
+               attributes ('name', 'msg', 'levelname', 'pathname', 'module',
+               etc.) raise KeyError inside logging.makeRecord BEFORE this
+               formatter runs — use distinct names like 'db_name'.
+
+Aggregator parsing: the format is newline-delimited JSON (NDJSON / JSONL).
+Most log aggregators ingest this natively — point CloudWatch / Datadog /
+Loki at stdout and they will parse each line as a structured record. Set
+FORGE_LOG__JSON_INDENT in dev only; an indented record spans multiple
+lines and breaks ingestion.
 """
 
 import json
@@ -34,6 +55,13 @@ class _JsonFormatter(logging.Formatter):
     Standard fields always present: timestamp, level, logger, message.
     Any keys passed via extra={} on the log call are merged at the top level.
     Keys colliding with standard field names are silently dropped.
+
+    NOTE on reserved names: Python's logging.makeRecord() raises KeyError if
+    extra={} contains any key that already exists as a LogRecord attribute
+    (including 'name', 'msg', 'levelname', 'pathname', 'module', etc.). This
+    happens BEFORE our formatter runs, so this class's silent-drop is only a
+    fallback for the four output-format keys (timestamp/level/logger/message).
+    Use distinct names like 'db_name' instead of 'name' in your extra={} dict.
     """
 
     _RESERVED = frozenset({"timestamp", "level", "logger", "message"})

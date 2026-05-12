@@ -22,10 +22,10 @@ SyncSession: sessionmaker[Session] = sessionmaker(bind=sync_engine, expire_on_co
 logger.debug(
     "database engine initialised",
     extra={
-        "host": settings.database.HOST,
-        "port": settings.database.PORT,
-        "name": settings.database.NAME,
-        "schema": settings.database.SCHEMA,
+        "db_host": settings.database.HOST,
+        "db_port": settings.database.PORT,
+        "db_name": settings.database.NAME,
+        "db_schema": settings.database.SCHEMA,
         "ssl_mode": settings.database.SSL_MODE,
         "pool_timeout": settings.database.POOL_TIMEOUT,
         "pool_recycle": settings.database.POOL_RECYCLE,

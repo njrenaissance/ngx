@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -128,6 +128,15 @@ class LogSettings(BaseSettings):
     # Datadog, etc.) parse one JSON record per line and an indented record
     # spans many lines, breaking ingestion.
     JSON_INDENT: int | None = None
+
+    @field_validator("JSON_INDENT")
+    @classmethod
+    def _indent_non_negative(cls, v: int | None) -> int | None:
+        # json.dumps accepts any int but negative values produce a confusing
+        # mix (no indent + leading newlines). Reject loud at config-load.
+        if v is not None and v < 0:
+            raise ValueError("JSON_INDENT must be None or >= 0")
+        return v
 
     settings_customise_sources = _build_customise_sources("log")
 

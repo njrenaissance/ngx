@@ -209,7 +209,28 @@ to respond, runs the suite, and tears the stack down on session exit.
 | Variable | Default | Purpose |
 |---|---|---|
 | `FORGE_LOG__LEVEL` | `DEBUG` | Root logger level — `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`. Also passed to uvicorn's `--log-level`. Default is `DEBUG` to surface lifecycle events in production; bump to `INFO` once the system is stable. |
-| `FORGE_LOG__JSON_INDENT` | *(unset)* | Pretty-prints JSON logs across multiple lines when set (e.g. `2`). **Leave unset in production** — log aggregators expect one JSON record per line. |
+| `FORGE_LOG__JSON_INDENT` | *(unset)* | Pretty-prints JSON logs across multiple lines when set (e.g. `2`). **Leave unset in production** — log aggregators expect one JSON record per line. Negative values are rejected at config-load. |
+
+#### Log output format
+
+Every log line is a single JSON object on stdout (NDJSON / JSONL). Standard fields:
+
+| Field | Description |
+|---|---|
+| `timestamp` | ISO 8601 with UTC offset (e.g. `2026-05-12T14:49:40.099908+00:00`) |
+| `level` | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL` |
+| `logger` | Dotted logger name, typically the module `__name__` (e.g. `forge.workers`) |
+| `message` | Formatted log message string |
+| `exc_info` | *(optional)* Full traceback as a single string with embedded `\n` newlines. JSON-safe — newlines stay escaped inside the value, the record itself stays one line. |
+| *anything else* | Any keys passed via `extra={}` are merged at the top level (e.g. `resource_id`, `celery_task_id`, `tier`, `deployment_id`). |
+
+Aggregator tip: CloudWatch Logs Insights, Datadog, and Loki all parse NDJSON natively — no custom parser needed.
+
+#### Default level trade-off
+
+`DEBUG` is the default so that lifecycle events (app startup, db engine init, Celery worker ready, status transitions) surface in production logs out of the box, which matters for a service in early operational maturity. The trade-off is volume: SQLAlchemy pool checkouts, Celery introspection, and uvicorn request logs all emit at DEBUG and can dominate ingestion costs.
+
+When the system stabilises and you no longer need lifecycle visibility for every deploy, set `FORGE_LOG__LEVEL=INFO` in the relevant environment (ECS task definition, `.env`, `docker-compose`). The application's own lifecycle records are emitted at `INFO`, so you keep the operationally interesting events while dropping the DEBUG firehose.
 
 ---
 
