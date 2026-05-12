@@ -2,13 +2,14 @@ import uuid
 from typing import Any, Literal
 
 import jsonschema
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, Query, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session, joinedload
 
 from forge.api.auth import AuthContext, require_auth
 from forge.api.deps import get_db_session
 from forge.api.pagination import Page, page_params
+from forge.api.problem_details import ProblemDetailsException
 from forge.api.schemas.resources import (
     ResourceCreateRequest,
     ResourceCreateResponse,
@@ -81,15 +82,23 @@ def create_resource(
     broker: TaskBroker = Depends(get_task_broker),
 ) -> ResourceCreateResponse:
     if "team_id" in payload:
-        raise HTTPException(
-            status_code=400,
+        raise ProblemDetailsException(
+            status=400,
+            type="urn:forge:error:bad-request",
+            title="Bad Request",
             detail="team_id is server-assigned from the authenticated user and cannot be supplied by clients",
         )
 
     try:
         req = ResourceCreateRequest.model_validate(payload)
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors()) from e
+        raise ProblemDetailsException(
+            status=422,
+            type="urn:forge:error:validation-failed",
+            title="Request validation failed",
+            detail="One or more request fields failed validation.",
+            errors=e.errors(),
+        ) from e
 
     rt_query = session.query(ResourceType).filter(
         ResourceType.name == req.resource_type,
@@ -101,11 +110,21 @@ def create_resource(
         rt_query = rt_query.filter(ResourceType.latest.is_(True))
     rt = rt_query.first()
     if rt is None:
-        raise HTTPException(status_code=404, detail=f"Resource type '{req.resource_type}' not found")
+        raise ProblemDetailsException(
+            status=404,
+            type="urn:forge:error:resource-type-not-found",
+            title="Resource type not found",
+            detail=f"Resource type '{req.resource_type}' not found",
+        )
 
     tier = session.query(TierPolicy).filter(TierPolicy.tier_name == req.tier).first()
     if tier is None:
-        raise HTTPException(status_code=404, detail=f"Tier '{req.tier}' not found")
+        raise ProblemDetailsException(
+            status=404,
+            type="urn:forge:error:tier-not-found",
+            title="Tier not found",
+            detail=f"Tier '{req.tier}' not found",
+        )
 
     # platform_assigned_only regions are silently 404'd — same information-hiding
     # pattern as cross-team resource isolation (no existence acknowledgement).
@@ -119,15 +138,22 @@ def create_resource(
         .first()
     )
     if region is None:
-        raise HTTPException(status_code=404, detail=f"Logical region '{req.logical_region}' not found")
+        raise ProblemDetailsException(
+            status=404,
+            type="urn:forge:error:region-not-found",
+            title="Logical region not found",
+            detail=f"Logical region '{req.logical_region}' not found",
+        )
 
     # Enforce catalog-defined tier↔region eligibility. A tier only permits the
     # regions explicitly listed in TierRegionMember — an unlisted combination is
     # a business-rule violation, not just a missing row.
     eligible = session.query(TierRegionMember).filter_by(tier_policy_id=tier.id, logical_region_id=region.id).first()
     if eligible is None:
-        raise HTTPException(
-            status_code=404,
+        raise ProblemDetailsException(
+            status=404,
+            type="urn:forge:error:tier-region-ineligible",
+            title="Region not available for tier",
             detail=f"Region '{req.logical_region}' is not available for tier '{req.tier}'",
         )
 
@@ -142,13 +168,23 @@ def create_resource(
     try:
         jsonschema.validate(req.config, schema)
     except jsonschema.ValidationError as e:
-        raise HTTPException(status_code=422, detail=f"config validation failed: {e.message}") from e
+        raise ProblemDetailsException(
+            status=422,
+            type="urn:forge:error:config-invalid",
+            title="Resource configuration invalid",
+            detail=f"config validation failed: {e.message}",
+        ) from e
     except jsonschema.SchemaError as e:
         logger.error(
             "malformed config schema",
             extra={"resource_type": req.resource_type, "tier": req.tier, "error": str(e)},
         )
-        raise HTTPException(status_code=500, detail="Internal error: malformed resource type schema") from e
+        raise ProblemDetailsException(
+            status=500,
+            type="urn:forge:error:internal-error",
+            title="Internal Server Error",
+            detail="Internal error: malformed resource type schema",
+        ) from e
 
     rr = ResourceRequest(
         team_id=auth.team_id,
@@ -250,7 +286,12 @@ def get_resource(
     if rr is None:
         # Silent cross-team isolation: a UUID owned by another team returns 404,
         # not 403 — we don't acknowledge its existence.
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise ProblemDetailsException(
+            status=404,
+            type="urn:forge:error:resource-not-found",
+            title="Resource not found",
+            detail="Resource not found",
+        )
     return _to_detail(rr)
 
 
@@ -273,5 +314,10 @@ def get_resource_status(
         .first()
     )
     if rr is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise ProblemDetailsException(
+            status=404,
+            type="urn:forge:error:resource-not-found",
+            title="Resource not found",
+            detail="Resource not found",
+        )
     return ResourceStatusResponse(resource_id=rr.id, status=rr.status, updated_at=rr.updated_at)

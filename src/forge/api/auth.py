@@ -3,15 +3,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import bcrypt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Request
 from sqlalchemy import update
 from sqlalchemy.orm import Session, joinedload
 
 from forge.api.deps import get_db_session
+from forge.api.problem_details import ProblemDetailsException
 from forge.models import AppUser
 
-UNAUTH = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED,
+UNAUTH = ProblemDetailsException(
+    status=401,
+    type="urn:forge:error:unauthorized",
+    title="Unauthorized",
     detail="Invalid or missing API key",
     headers={"WWW-Authenticate": "Bearer"},
 )
@@ -65,8 +68,10 @@ def require_auth(
 
 def require_admin(auth: AuthContext = Depends(require_auth)) -> AuthContext:
     if auth.user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+        raise ProblemDetailsException(
+            status=403,
+            type="urn:forge:error:forbidden",
+            title="Forbidden",
             detail="Admin role required",
         )
     return auth

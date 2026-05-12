@@ -13,6 +13,7 @@ from forge.main import get_app
 from forge.models.catalog import ResourceType, ResourceTypeTierConstraint, TierPolicy
 from forge.models.identity import AppUser, Team
 from forge.models.topology import LogicalRegion
+from tests.unit.conftest import assert_problem_details
 
 pytestmark = pytest.mark.unit
 
@@ -244,13 +245,13 @@ class TestGetResourceType:
     def test_returns_404_for_unknown_resource_type(self):
         session = self._session_for_rt(rt=None)
         resp = _client_with_session(session).get("/v1/catalog/resource-types/nonexistent")
-        assert resp.status_code == 404
+        assert_problem_details(resp, 404, "resource-type-not-found")
 
     def test_returns_404_for_unknown_tier(self):
         rt = _make_resource_type()
         session = self._session_for_rt(rt, tier=None)
         resp = _client_with_session(session).get("/v1/catalog/resource-types/managed_database?tier=badtier")
-        assert resp.status_code == 404
+        assert_problem_details(resp, 404, "tier-not-found")
 
     def test_returns_401_without_auth(self):
         app = get_app()

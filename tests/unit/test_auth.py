@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import bcrypt
 import pytest
-from fastapi import HTTPException, Request
+from fastapi import Request
 from fastapi.testclient import TestClient
 
 from forge.api.auth import (
@@ -14,6 +14,7 @@ from forge.api.auth import (
     require_auth,
 )
 from forge.api.deps import get_db_session
+from forge.api.problem_details import ProblemDetailsException
 from forge.main import get_app
 from forge.models import AppUser
 
@@ -25,21 +26,21 @@ def _make_request(authorization: str | None) -> Request:
 
 
 def test_extract_bearer_missing_header_raises_401() -> None:
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ProblemDetailsException) as exc:
         _extract_bearer(_make_request(None))
-    assert exc.value.status_code == 401
+    assert exc.value.status == 401
 
 
 def test_extract_bearer_wrong_scheme_raises_401() -> None:
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ProblemDetailsException) as exc:
         _extract_bearer(_make_request("Basic abc123"))
-    assert exc.value.status_code == 401
+    assert exc.value.status == 401
 
 
 def test_extract_bearer_empty_token_raises_401() -> None:
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ProblemDetailsException) as exc:
         _extract_bearer(_make_request("Bearer "))
-    assert exc.value.status_code == 401
+    assert exc.value.status == 401
 
 
 def test_extract_bearer_returns_token() -> None:
@@ -135,9 +136,9 @@ def test_me_with_valid_key_returns_user_payload() -> None:
 def test_require_admin_rejects_member_role() -> None:
     user = _fake_user("k", role="member")
     ctx = AuthContext(user=user, team_id=user.team_id)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ProblemDetailsException) as exc:
         require_admin(ctx)
-    assert exc.value.status_code == 403
+    assert exc.value.status == 403
 
 
 def test_require_admin_allows_admin_role() -> None:

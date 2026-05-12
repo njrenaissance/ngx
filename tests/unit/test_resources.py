@@ -14,6 +14,7 @@ from forge.models.catalog import ResourceType, ResourceTypeTierConstraint, TierP
 from forge.models.identity import AppUser, Team
 from forge.models.provisioning import ResourceRequest
 from forge.models.topology import LogicalRegion
+from tests.unit.conftest import assert_problem_details
 
 pytestmark = pytest.mark.unit
 
@@ -175,8 +176,8 @@ class TestCreateResource:
         session = _session_for_create(_make_resource_type(), _make_tier(), _make_region())
         body = {**VALID_BODY, "team_id": str(_OTHER_TEAM_ID)}
         resp = _client_with_session(session).post("/v1/resources", json=body)
-        assert resp.status_code == 400
-        assert "team_id" in resp.json()["detail"]
+        pd = assert_problem_details(resp, 400, "bad-request")
+        assert "team_id" in pd["detail"]
 
     def test_rejects_unknown_field_with_422(self):
         session = _session_for_create(_make_resource_type(), _make_tier(), _make_region())
@@ -188,8 +189,8 @@ class TestCreateResource:
         session = _session_for_create(_make_resource_type(), _make_tier(), _make_region())
         body = {**VALID_BODY, "config": {"size": "huge"}}  # not in enum
         resp = _client_with_session(session).post("/v1/resources", json=body)
-        assert resp.status_code == 422
-        assert "config validation failed" in resp.json()["detail"]
+        pd = assert_problem_details(resp, 422, "config-invalid")
+        assert "config validation failed" in pd["detail"]
 
     def test_missing_required_config_field_returns_422(self):
         session = _session_for_create(_make_resource_type(), _make_tier(), _make_region())
@@ -200,20 +201,20 @@ class TestCreateResource:
     def test_unknown_resource_type_returns_404(self):
         session = _session_for_create(rt=None, tier=_make_tier(), region=_make_region())
         resp = _client_with_session(session).post("/v1/resources", json=VALID_BODY)
-        assert resp.status_code == 404
-        assert "Resource type" in resp.json()["detail"]
+        pd = assert_problem_details(resp, 404, "resource-type-not-found")
+        assert "Resource type" in pd["detail"]
 
     def test_unknown_tier_returns_404(self):
         session = _session_for_create(rt=_make_resource_type(), tier=None, region=_make_region())
         resp = _client_with_session(session).post("/v1/resources", json=VALID_BODY)
-        assert resp.status_code == 404
-        assert "Tier" in resp.json()["detail"]
+        pd = assert_problem_details(resp, 404, "tier-not-found")
+        assert "Tier" in pd["detail"]
 
     def test_unknown_region_returns_404(self):
         session = _session_for_create(rt=_make_resource_type(), tier=_make_tier(), region=None)
         resp = _client_with_session(session).post("/v1/resources", json=VALID_BODY)
-        assert resp.status_code == 404
-        assert "region" in resp.json()["detail"]
+        pd = assert_problem_details(resp, 404, "region-not-found")
+        assert "region" in pd["detail"]
 
     def test_constraint_override_applied(self):
         """When a tier constraint exists, it must replace base schema keys."""
@@ -236,8 +237,8 @@ class TestCreateResource:
     def test_ineligible_tier_region_combination_returns_404(self):
         session = _session_for_create(_make_resource_type(), _make_tier(), _make_region(), tier_region_eligible=False)
         resp = _client_with_session(session).post("/v1/resources", json=VALID_BODY)
-        assert resp.status_code == 404
-        assert "not available for tier" in resp.json()["detail"]
+        pd = assert_problem_details(resp, 404, "tier-region-ineligible")
+        assert "not available for tier" in pd["detail"]
 
     def test_returns_401_without_auth(self):
         app = get_app()
@@ -291,17 +292,20 @@ class TestListResources:
     def test_invalid_status_returns_422(self):
         session = _list_session()
         resp = _client_with_session(session).get("/v1/resources?status=pendng")
-        assert resp.status_code == 422
+        pd = assert_problem_details(resp, 422, "validation-failed")
+        assert "errors" in pd
 
     def test_limit_above_max_returns_422(self):
         session = _list_session()
         resp = _client_with_session(session).get("/v1/resources?limit=300")
-        assert resp.status_code == 422
+        pd = assert_problem_details(resp, 422, "validation-failed")
+        assert "errors" in pd
 
     def test_page_below_one_returns_422(self):
         session = _list_session()
         resp = _client_with_session(session).get("/v1/resources?page=0")
-        assert resp.status_code == 422
+        pd = assert_problem_details(resp, 422, "validation-failed")
+        assert "errors" in pd
 
     def test_returns_401_without_auth(self):
         app = get_app()
