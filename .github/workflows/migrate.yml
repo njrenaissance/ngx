@@ -55,7 +55,7 @@ jobs:
             --services "${{ vars.ECS_SERVICE }}" \
             --no-cli-pager \
             --query 'services[0].networkConfiguration' \
-            --output json)
+            --output json | jq -c '.')
           echo "config=$NETWORK_CONFIG" >> $GITHUB_OUTPUT
 
       - name: Run alembic upgrade head
