@@ -3,6 +3,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import RedirectResponse
 
 from forge import __version__
+from forge.api.catalog import router as catalog_router
 from forge.api.health import router as health_router
 from forge.api.me import router as me_router
 from forge.config import settings
@@ -37,6 +38,7 @@ def get_app() -> FastAPI:
 
     application.include_router(health_router)
     application.include_router(me_router)
+    application.include_router(catalog_router)
 
     application.openapi = _custom_openapi(application)  # type: ignore[method-assign]
     return application
