@@ -53,8 +53,15 @@ services:
       FORGE_DATABASE__PASSWORD: forge
       FORGE_DATABASE__SSL_MODE: disable
       FORGE_CELERY__BROKER_URL: ${FORGE_CELERY__BROKER_URL:-redis://redis:6379/0}
+      # The api never materializes workspaces, but the settings class requires
+      # these fields. Empty defaults are fine because the api code path doesn't
+      # touch them — keeps env parity with worker.
+      FORGE_TERRAFORM__MANAGED_RESOURCES_BUCKET: ${FORGE_TERRAFORM__MANAGED_RESOURCES_BUCKET:-forge-local-managed-resources}
+      FORGE_TERRAFORM__MANAGED_RESOURCES_REGION: ${FORGE_TERRAFORM__MANAGED_RESOURCES_REGION:-us-east-1}
+      FORGE_TERRAFORM__PACKAGES_DIR: /app/packages
     volumes:
       - ./src:/app/src:ro
+      - ./packages:/app/packages:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -103,8 +110,12 @@ services:
       FORGE_DATABASE__PASSWORD: forge
       FORGE_DATABASE__SSL_MODE: disable
       FORGE_CELERY__BROKER_URL: ${FORGE_CELERY__BROKER_URL:-redis://redis:6379/0}
+      FORGE_TERRAFORM__MANAGED_RESOURCES_BUCKET: ${FORGE_TERRAFORM__MANAGED_RESOURCES_BUCKET:-forge-local-managed-resources}
+      FORGE_TERRAFORM__MANAGED_RESOURCES_REGION: ${FORGE_TERRAFORM__MANAGED_RESOURCES_REGION:-us-east-1}
+      FORGE_TERRAFORM__PACKAGES_DIR: /app/packages
     volumes:
       - ./src:/app/src:ro
+      - ./packages:/app/packages:ro
     depends_on:
       postgres:
         condition: service_healthy

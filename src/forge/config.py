@@ -54,6 +54,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "TASK_TIME_LIMIT": 1800,  # 30 min hard kill — covers a slow terraform apply
         "TASK_SOFT_TIME_LIMIT": 1500,  # 25 min soft — leaves room for in-task cleanup
     },
+    "terraform": {
+        # Empty strings fail loud at materialize-time when the worker tries to
+        # render backend.tf — cloud envs must set FORGE_TERRAFORM__MANAGED_RESOURCES_*.
+        "MANAGED_RESOURCES_BUCKET": "",
+        "MANAGED_RESOURCES_REGION": "",
+        "PACKAGES_DIR": "./packages",
+    },
 }
 
 # Top-level keys whose values are nested settings dicts (not Settings fields).
@@ -62,7 +69,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 # treated as a flat Settings field and flows into the top-level baseline.
 # Failing to add a new nested class here means its defaults dict would leak
 # into Settings as a stray field at construction time.
-_NESTED_SETTINGS_KEYS: frozenset[str] = frozenset({"database", "celery"})
+_NESTED_SETTINGS_KEYS: frozenset[str] = frozenset({"database", "celery", "terraform"})
 
 
 def _build_customise_sources(defaults_key: str):
@@ -133,6 +140,40 @@ class CelerySettings(BaseSettings):
     TASK_SOFT_TIME_LIMIT: int
 
     settings_customise_sources = _build_customise_sources("celery")
+
+
+class TerraformSettings(BaseSettings):
+    """Terraform workspace / managed-resources settings.
+
+    The worker materializes per-request Terraform workspaces under
+    /tmp/forge-workspaces/ by copying the matching versioned package from
+    PACKAGES_DIR and rendering a backend.tf pointing at the S3 state bucket.
+
+    MANAGED_RESOURCES_BUCKET / MANAGED_RESOURCES_REGION are blank in
+    DEFAULT_SETTINGS so cloud envs must set
+    FORGE_TERRAFORM__MANAGED_RESOURCES_BUCKET and
+    FORGE_TERRAFORM__MANAGED_RESOURCES_REGION explicitly. PACKAGES_DIR
+    defaults to ./packages (resolved relative to the worker's CWD inside the
+    container — docker-compose mounts the host packages/ tree there).
+
+    Direct construction note: `TerraformSettings()` is wired to read its
+    baseline from DEFAULT_SETTINGS via _build_customise_sources. Bypassing
+    that path will raise ValidationError for missing fields. Always import
+    via `from forge.config import settings`.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="FORGE_TERRAFORM__",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    MANAGED_RESOURCES_BUCKET: str
+    MANAGED_RESOURCES_REGION: str
+    PACKAGES_DIR: str
+
+    settings_customise_sources = _build_customise_sources("terraform")
 
 
 class DatabaseSettings(BaseSettings):
@@ -230,6 +271,7 @@ class Settings(BaseSettings):
     # via _build_customise_sources. They construct themselves from () here.
     database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # type: ignore[call-arg]
     celery: CelerySettings = Field(default_factory=lambda: CelerySettings())  # type: ignore[call-arg]
+    terraform: TerraformSettings = Field(default_factory=lambda: TerraformSettings())  # type: ignore[call-arg]
 
     @classmethod
     def settings_customise_sources(

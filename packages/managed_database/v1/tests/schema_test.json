@@ -1,0 +1,40 @@
+{
+  "_comment": "Examples used by the CI schema validator (deferred follow-up). valid_examples must validate cleanly against catalog.json#base_config_schema; invalid_examples must fail. Edit catalog.json and these in lockstep.",
+  "valid_examples": [
+    {
+      "name": "postgres-small-default-storage",
+      "config": {
+        "engine": "postgres",
+        "size": "small",
+        "storage_gb": 100
+      }
+    },
+    {
+      "name": "mysql-medium-large-storage",
+      "config": {
+        "engine": "mysql",
+        "size": "medium",
+        "storage_gb": 500
+      }
+    }
+  ],
+  "invalid_examples": [
+    {
+      "name": "missing-required-size",
+      "config": {
+        "engine": "postgres",
+        "storage_gb": 100
+      },
+      "reason": "size is required"
+    },
+    {
+      "name": "unknown-engine-enum",
+      "config": {
+        "engine": "oracle",
+        "size": "small",
+        "storage_gb": 100
+      },
+      "reason": "engine must be one of postgres, mysql"
+    }
+  ]
+}

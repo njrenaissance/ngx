@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "forge"
-version = "0.7.1"
+version = "0.8.0"
 description = "Forge — NGX self-service infrastructure provisioning service"
 requires-python = ">=3.12"
 dependencies = [

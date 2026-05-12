@@ -11,6 +11,23 @@ ENV UV_LINK_MODE=copy \
 
 WORKDIR /app
 
+# Terraform CLI — pinned + checksum-verified. The worker invokes terraform
+# at runtime (E.3); the api image carries it too for symmetry rather than
+# splitting images and dealing with two build/push paths in CI.
+# Checksum from https://releases.hashicorp.com/terraform/1.10.0/terraform_1.10.0_SHA256SUMS
+ARG TERRAFORM_VERSION=1.10.0
+ARG TERRAFORM_SHA256=4b05f4848d365597cf7ac5b59334c62a16b3bb7b524586578ee45ba823b6758b
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates unzip \
+ && curl -fsSLo /tmp/tf.zip "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+ && echo "${TERRAFORM_SHA256}  /tmp/tf.zip" | sha256sum -c - \
+ && unzip /tmp/tf.zip -d /usr/local/bin/ \
+ && rm /tmp/tf.zip \
+ && terraform version \
+ && apt-get purge -y curl unzip \
+ && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/*
+
 # Install production dependencies (no dev group)
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -38,6 +55,10 @@ COPY --from=builder --chown=forge:forge /app/src /app/src
 COPY --from=builder --chown=forge:forge /app/alembic /app/alembic
 COPY --from=builder --chown=forge:forge /app/alembic.ini /app/alembic.ini
 COPY --from=builder --chown=forge:forge /app/db /app/db
+
+# Pinned terraform CLI from the builder. Owned by root with mode 755 so
+# unprivileged forge user can exec it but not modify it.
+COPY --from=builder /usr/local/bin/terraform /usr/local/bin/terraform
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app/src" \
