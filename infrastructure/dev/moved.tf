@@ -97,9 +97,21 @@ moved {
 
 # ─── ecs_service module ────────────────────────────────────────────────────────
 
+# aws_security_group.app moves directly from the root layout into the network
+# module (NOT ecs_service). The SG was briefly addressed at
+# module.ecs_service.aws_security_group.app on intermediate dev applies, but
+# was relocated to network in #54 to break the cache↔ecs_service module cycle
+# (cache needs the SG as an ingress source; ecs_service needs the cache
+# endpoint as an env var). Both old addresses are listed so Terraform finds
+# the SG in state regardless of which prior point a given environment is at.
 moved {
   from = aws_security_group.app
-  to   = module.ecs_service.aws_security_group.app
+  to   = module.network.aws_security_group.app
+}
+
+moved {
+  from = module.ecs_service.aws_security_group.app
+  to   = module.network.aws_security_group.app
 }
 
 moved {

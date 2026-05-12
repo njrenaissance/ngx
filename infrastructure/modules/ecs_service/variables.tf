@@ -3,18 +3,13 @@ variable "name_prefix" {
   type        = string
 }
 
-variable "vpc_id" {
-  description = "VPC ID the app security group belongs to."
-  type        = string
-}
-
 variable "private_subnet_ids" {
-  description = "Private subnet IDs the Fargate task runs in (one per AZ)."
+  description = "Private subnet IDs the Fargate tasks run in (one per AZ)."
   type        = list(string)
 }
 
-variable "alb_security_group_id" {
-  description = "ALB security group ID. The app security group ingresses port 8000 only from this SG."
+variable "app_security_group_id" {
+  description = "Shared app SG (created in the network module) attached to both api and worker ECS tasks. Hosts ingress 8000 from the ALB; cache and database modules also reference it as the source for their 6379/5432 ingress rules."
   type        = string
 }
 
@@ -84,4 +79,17 @@ variable "database_ssl_mode" {
     condition     = contains(["disable", "prefer", "require", "verify-ca", "verify-full"], var.database_ssl_mode)
     error_message = "database_ssl_mode must be one of: disable, prefer, require, verify-ca, verify-full."
   }
+}
+
+# ─── Celery wiring (issue #54) ────────────────────────────────────────────────
+
+variable "cache_endpoint" {
+  description = "Elasticache primary endpoint DNS name. Wired into both api and worker task env as FORGE_CELERY__BROKER_URL=rediss://<endpoint>:<port>/0."
+  type        = string
+}
+
+variable "cache_port" {
+  description = "Elasticache primary endpoint port. Defaulted to 6379; sourced from the cache module output for honesty."
+  type        = number
+  default     = 6379
 }

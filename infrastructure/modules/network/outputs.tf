@@ -12,3 +12,8 @@ output "private_subnet_ids" {
   description = "Private subnet IDs (one per AZ). Consumed by the ecs_service module."
   value       = aws_subnet.private[*].id
 }
+
+output "app_security_group_id" {
+  description = "Shared SG attached to api + worker ECS tasks. Consumed by ecs_service (network_configuration), database (ingress 5432), and cache (ingress 6379). Lives in network rather than ecs_service to break the cache↔ecs_service module dependency cycle."
+  value       = aws_security_group.app.id
+}

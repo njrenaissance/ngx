@@ -69,3 +69,41 @@ resource "aws_route_table_association" "private" {
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private.id
 }
+
+# ─── Shared application security group ────────────────────────────────────────
+#
+# The "app" SG belongs to the network module rather than ecs_service so that
+# both the cache and database modules can use it as an ingress source without
+# pulling in a module-level dependency cycle on ecs_service. Concretely:
+#
+#   - ecs_service (api + worker tasks) attaches this SG.
+#   - cache (Elasticache) opens 6379 ingress from this SG.
+#   - database (Aurora) opens 5432 ingress from this SG.
+#
+# Keeping the SG here means ecs_service can depend on cache.primary_endpoint
+# without cache transitively needing an ecs_service output. The SG carries the
+# ALB-only ingress rule for 8000 because that's the api task's listening port;
+# worker tasks don't listen but still attach this SG (the unused 8000 ingress
+# is harmless).
+
+resource "aws_security_group" "app" {
+  name        = "${var.name_prefix}-app-sg"
+  description = "ECS tasks inbound from ALB only"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port       = 8000
+    to_port         = 8000
+    protocol        = "tcp"
+    security_groups = [var.alb_security_group_id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "${var.name_prefix}-app-sg" }
+}
