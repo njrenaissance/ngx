@@ -46,7 +46,11 @@ def upgrade() -> None:
         sa.Column("physical_az", sa.String(64), nullable=False),
         sa.Column("az_index", sa.Integer, nullable=False),
         sa.Column("active", sa.Boolean, nullable=False, server_default="true"),
+        sa.UniqueConstraint("logical_region_id", "physical_az", name="uq_region_az_physical"),
+        sa.UniqueConstraint("logical_region_id", "az_index", name="uq_region_az_index"),
     )
+
+    op.create_index("ix_region_az_map_logical_region_id", "region_az_map", ["logical_region_id"])
 
 
 def downgrade() -> None:

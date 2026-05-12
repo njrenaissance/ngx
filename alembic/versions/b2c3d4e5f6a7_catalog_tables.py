@@ -48,7 +48,11 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("priority", sa.Integer, nullable=False, server_default="1"),
+        sa.UniqueConstraint("tier_policy_id", "logical_region_id", name="uq_tier_region_member"),
     )
+
+    op.create_index("ix_tier_region_member_tier_policy_id", "tier_region_member", ["tier_policy_id"])
+    op.create_index("ix_tier_region_member_logical_region_id", "tier_region_member", ["logical_region_id"])
 
     op.create_table(
         "resource_type",
@@ -64,6 +68,8 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint("name", "version", name="uq_resource_type_name_version"),
     )
+
+    op.create_index("ix_resource_type_name", "resource_type", ["name"])
 
     op.create_table(
         "resource_type_tier_constraint",
@@ -81,7 +87,11 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("config_schema_override", postgresql.JSONB, nullable=False),
+        sa.UniqueConstraint("resource_type_id", "tier_policy_id", name="uq_constraint_pair"),
     )
+
+    op.create_index("ix_rttc_resource_type_id", "resource_type_tier_constraint", ["resource_type_id"])
+    op.create_index("ix_rttc_tier_policy_id", "resource_type_tier_constraint", ["tier_policy_id"])
 
 
 def downgrade() -> None:
