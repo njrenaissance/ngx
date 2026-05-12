@@ -60,7 +60,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_managed" {
 # Narrowly grant the execution role read access to the DB master secret and
 # decrypt access to the CMK. Resource-scoped so the execution role cannot
 # read any other secret or decrypt with any other key — minimum required for
-# ECS `secrets[]` to fetch DATABASE_PASSWORD at task start.
+# ECS `secrets[]` to fetch FORGE_DATABASE__PASSWORD at task start.
 resource "aws_iam_role_policy" "ecs_execution_db_secret" {
   name = "${var.name_prefix}-ecs-execution-db-secret"
   role = aws_iam_role.ecs_execution.id
@@ -106,7 +106,7 @@ resource "aws_iam_role_policy" "ecs_execution_db_secret" {
 #   - A compromised container can only do what the task role allows.
 #   - Today that's nothing — even if popped, the container can't call any AWS
 #     API as itself. (It still has access to env vars including
-#     DATABASE_PASSWORD, but that's the limit of what's exposed.)
+#     FORGE_DATABASE__PASSWORD, but that's the limit of what's exposed.)
 #   - The execution role's secret-fetching power is NOT available to the
 #     container because the container doesn't assume the execution role.
 
@@ -148,10 +148,11 @@ resource "aws_ecs_task_definition" "app" {
 
     portMappings = [{ containerPort = 8000, protocol = "tcp" }]
 
-    # Plain (non-secret) environment variables. The DATABASE_* values
-    # implement the env-var contract the app reads to construct the DSN
-    # locally and in cloud — same names work in both. Only DATABASE_PASSWORD
-    # is split out into `secrets` below.
+    # Plain (non-secret) environment variables. The FORGE_DATABASE__* values
+    # implement the pydantic-settings env-var contract the app reads (see
+    # src/forge/config.py — env_prefix="FORGE_DATABASE__") to construct the
+    # DSN locally and in cloud — same names work in both. Only
+    # FORGE_DATABASE__PASSWORD is split out into `secrets` below.
     #
     # Why host/port/user/name aren't secrets: the cluster endpoint, port,
     # database name, and master username are not sensitive. Splitting them
@@ -165,11 +166,11 @@ resource "aws_ecs_task_definition" "app" {
       { name = "FORGE_LOG_LEVEL", value = "INFO" },
       { name = "FORGE_HOST", value = "0.0.0.0" },
       { name = "FORGE_PORT", value = "8000" },
-      { name = "DATABASE_HOST", value = var.database_host },
-      { name = "DATABASE_PORT", value = tostring(var.database_port) },
-      { name = "DATABASE_NAME", value = var.database_name },
-      { name = "DATABASE_USER", value = var.database_user },
-      { name = "DATABASE_SSL_MODE", value = var.database_ssl_mode },
+      { name = "FORGE_DATABASE__HOST", value = var.database_host },
+      { name = "FORGE_DATABASE__PORT", value = tostring(var.database_port) },
+      { name = "FORGE_DATABASE__NAME", value = var.database_name },
+      { name = "FORGE_DATABASE__USER", value = var.database_user },
+      { name = "FORGE_DATABASE__SSL_MODE", value = var.database_ssl_mode },
     ]
 
     # Secrets injected at task start by the execution role. JSON-key syntax
@@ -178,7 +179,7 @@ resource "aws_ecs_task_definition" "app" {
     # both empty meaning "current").
     secrets = [
       {
-        name      = "DATABASE_PASSWORD"
+        name      = "FORGE_DATABASE__PASSWORD"
         valueFrom = "${var.master_secret_arn}:password::"
       },
     ]
