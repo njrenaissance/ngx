@@ -75,12 +75,26 @@ def seeded_db(forge_url: str) -> None:
     alembic_cfg = Config(str(REPO_ROOT / "alembic.ini"))
     command.upgrade(alembic_cfg, "head")
 
-    from db.seed import _load_fixtures, seed
+    from db.seed import (
+        _load_fixtures,
+        seed,
+        seed_logical_regions,
+        seed_resource_types,
+        seed_tier_policies,
+        seed_tier_region_members,
+    )
     from forge.db import SyncSession
 
     fixtures = _load_fixtures()
     with SyncSession() as session:
-        from forge.models import AppUser
+        from forge.models import AppUser, TierPolicy
 
         if not session.query(AppUser).count():
             seed(session, fixtures)
+
+        if not session.query(TierPolicy).count():
+            tier_map = seed_tier_policies(session, fixtures)
+            region_map = seed_logical_regions(session, fixtures)
+            seed_tier_region_members(session, fixtures, tier_map, region_map)
+            seed_resource_types(session, fixtures)
+            session.commit()

@@ -59,5 +59,4 @@ htmlcov/
 db/seed.json
 db/seed-plaintext-keys.txt
 docs/cloud-provisioning-platform-spec_1.docx
-docs/SPEC.md
 .claude/settings.local.json
