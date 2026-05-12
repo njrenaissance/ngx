@@ -99,6 +99,9 @@
                 "ecs:DeregisterTaskDefinition",
                 "ecs:DescribeTaskDefinition",
                 "ecs:ListTaskDefinitions",
+                "ecs:RunTask",
+                "ecs:StopTask",
+                "ecs:DescribeTasks",
                 "ecs:TagResource",
                 "ecs:UntagResource",
                 "ecs:ListTagsForResource"
