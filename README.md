@@ -257,6 +257,18 @@ All `/v1/*` routes require an `X-API-Key` header.
 
 ---
 
+## Real-AWS provisioning (manual, opt-in)
+
+The integration test suite uses a deterministic fake terraform binary
+to exercise the plan-then-apply lifecycle without an AWS account. To
+drive a real `terraform apply` against AWS, follow the
+[real-AWS provisioning runbook](docs/runbooks/real-aws-provisioning.md).
+It covers the bootstrap prerequisites, IAM admin steps, env-var
+overrides for the worker, and manual cleanup of orphaned resources
+when an apply fails partway. **Not exercised by CI.**
+
+---
+
 ## Project structure
 
 ```text
