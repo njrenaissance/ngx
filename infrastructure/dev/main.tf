@@ -48,7 +48,6 @@ module "database" {
   source = "../modules/database"
 
   name_prefix           = local.name_prefix
-  environment           = var.environment
   vpc_id                = module.network.vpc_id
   private_subnet_ids    = module.network.private_subnet_ids
   app_security_group_id = module.ecs_service.app_security_group_id
