@@ -144,7 +144,10 @@ def create_resource(
     except jsonschema.ValidationError as e:
         raise HTTPException(status_code=422, detail=f"config validation failed: {e.message}") from e
     except jsonschema.SchemaError as e:
-        logger.error("Malformed config schema for resource_type=%s tier=%s: %s", req.resource_type, req.tier, e)
+        logger.error(
+            "malformed config schema",
+            extra={"resource_type": req.resource_type, "tier": req.tier, "error": str(e)},
+        )
         raise HTTPException(status_code=500, detail="Internal error: malformed resource type schema") from e
 
     rr = ResourceRequest(
@@ -166,7 +169,10 @@ def create_resource(
     # resource_id in the worker log. A dedicated celery_task_id column on
     # ResourceRequest is a separate follow-up if stronger correlation is
     # needed (e.g. for revoke from the API).
-    logger.info("provision_resource enqueued: resource_id=%s celery_task_id=%s", rr.id, task_id)
+    logger.info(
+        "provision_resource enqueued",
+        extra={"resource_id": str(rr.id), "celery_task_id": task_id, "team_id": str(auth.team_id)},
+    )
 
     return ResourceCreateResponse(
         resource_id=rr.id,

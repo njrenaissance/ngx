@@ -5,7 +5,7 @@ locals {
   shared_environment = [
     { name = "FORGE_APP_NAME", value = "Forge" },
     { name = "FORGE_ENVIRONMENT", value = var.environment },
-    { name = "FORGE_LOG_LEVEL", value = "INFO" },
+    { name = "FORGE_LOG__LEVEL", value = "DEBUG" },
     { name = "FORGE_DATABASE__HOST", value = var.database_host },
     { name = "FORGE_DATABASE__PORT", value = tostring(var.database_port) },
     { name = "FORGE_DATABASE__NAME", value = var.database_name },

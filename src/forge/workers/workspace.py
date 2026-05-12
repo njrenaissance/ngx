@@ -166,9 +166,13 @@ def materialize_workspace(session: Session, resource_request: ResourceRequest) -
 
     session.commit()
     logger.info(
-        "materialize_workspace: resource_request=%s deployment=%s workspace=%s",
-        resource_request.id,
-        deployment.id,
-        dest,
+        "workspace materialized",
+        extra={
+            "resource_id": str(resource_request.id),
+            "deployment_id": str(deployment.id),
+            "workspace_path": str(dest),
+            "tf_state_key": tf_state_key,
+            "az_count": len(az_assignments),
+        },
     )
     return dest

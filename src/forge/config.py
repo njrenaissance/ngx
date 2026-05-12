@@ -61,7 +61,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "PACKAGES_DIR": "./packages",
     },
     "log": {
-        "LEVEL": "INFO",
+        # DEBUG default surfaces startup, db init, task lifecycle, and AZ
+        # selection events in production logs. Bump to INFO/WARNING via
+        # FORGE_LOG__LEVEL once the system is stable and the noise becomes
+        # a cost concern.
+        "LEVEL": "DEBUG",
         "JSON_INDENT": None,
     },
 }
@@ -119,6 +123,10 @@ class LogSettings(BaseSettings):
     )
 
     LEVEL: str
+    # Pretty-prints JSON across multiple lines when set (useful for local
+    # eyeballing). MUST stay None in production: log aggregators (CloudWatch,
+    # Datadog, etc.) parse one JSON record per line and an indented record
+    # spans many lines, breaking ingestion.
     JSON_INDENT: int | None = None
 
     settings_customise_sources = _build_customise_sources("log")

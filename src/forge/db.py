@@ -19,6 +19,19 @@ sync_engine = create_engine(
 
 SyncSession: sessionmaker[Session] = sessionmaker(bind=sync_engine, expire_on_commit=False)
 
+logger.debug(
+    "database engine initialised",
+    extra={
+        "host": settings.database.HOST,
+        "port": settings.database.PORT,
+        "name": settings.database.NAME,
+        "schema": settings.database.SCHEMA,
+        "ssl_mode": settings.database.SSL_MODE,
+        "pool_timeout": settings.database.POOL_TIMEOUT,
+        "pool_recycle": settings.database.POOL_RECYCLE,
+    },
+)
+
 
 def readiness_check() -> tuple[bool, str]:
     """Verify the database is reachable by issuing SELECT 1.
@@ -40,5 +53,8 @@ def readiness_check() -> tuple[bool, str]:
         # underlying socket failures (refused, reset, DNS). KeyboardInterrupt
         # and SystemExit must propagate, so we deliberately do NOT catch
         # bare Exception.
-        logger.warning("Database readiness check failed: %s", e)
+        logger.warning(
+            "database readiness check failed",
+            extra={"host": settings.database.HOST, "port": settings.database.PORT, "error": str(e)},
+        )
         return (False, str(e))

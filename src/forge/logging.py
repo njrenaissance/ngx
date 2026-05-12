@@ -78,6 +78,11 @@ def configure_root_logger() -> None:
     level = getattr(logging, settings.log.LEVEL.upper(), logging.INFO)
     root.setLevel(level)
 
+    # stdout (not stderr) per Twelve-Factor App §XI and the Kubernetes/CRI
+    # logging contract: container runtimes (containerd, Docker) capture both
+    # streams, but ECS/EKS/GKE log routers and `kubectl logs` treat stdout
+    # as the canonical event stream. stderr is reserved for runtime crashes
+    # and panics that bypass the application logger entirely.
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(level)
     handler.setFormatter(_JsonFormatter(indent=settings.log.JSON_INDENT))

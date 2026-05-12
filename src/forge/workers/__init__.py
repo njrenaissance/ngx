@@ -7,10 +7,17 @@ must be imported in `forge/workers/tasks/__init__.py` so its
 """
 
 from celery import Celery  # type: ignore[import-untyped]
-from celery.signals import worker_process_init  # type: ignore[import-untyped]
+from celery.signals import (  # type: ignore[import-untyped]
+    worker_process_init,
+    worker_ready,
+    worker_shutdown,
+)
 
+from forge import __version__
 from forge.config import settings
-from forge.logging import configure_root_logger
+from forge.logging import configure_root_logger, get_logger
+
+logger = get_logger(__name__)
 
 celery_app = Celery("forge")
 
@@ -61,6 +68,28 @@ def _on_worker_process_init(**_kwargs: object) -> None:
     to guarantee correct state in the child regardless of Celery internals.
     """
     configure_root_logger()
+
+
+@worker_ready.connect(dispatch_uid="forge.workers.startup")
+def _on_worker_ready(**_kwargs: object) -> None:
+    """Fired once when the worker has finished booting and is ready to consume."""
+    logger.info(
+        "celery worker ready",
+        extra={
+            "version": __version__,
+            "environment": settings.ENVIRONMENT,
+            "queue": settings.celery.TASK_DEFAULT_QUEUE,
+            "broker_url": settings.celery.BROKER_URL,
+            "task_time_limit": settings.celery.TASK_TIME_LIMIT,
+            "task_soft_time_limit": settings.celery.TASK_SOFT_TIME_LIMIT,
+        },
+    )
+
+
+@worker_shutdown.connect(dispatch_uid="forge.workers.shutdown")
+def _on_worker_shutdown(**_kwargs: object) -> None:
+    """Fired when the worker is shutting down (after warm shutdown drains)."""
+    logger.info("celery worker shutdown", extra={"queue": settings.celery.TASK_DEFAULT_QUEUE})
 
 
 celery_app.autodiscover_tasks(["forge.workers"])

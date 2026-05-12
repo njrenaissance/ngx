@@ -173,7 +173,6 @@ to respond, runs the suite, and tears the stack down on session exit.
 |---|---|---|
 | `FORGE_APP_NAME` | `Forge` | Service identity in `/livez` response |
 | `FORGE_ENVIRONMENT` | `dev` | Free-form environment label |
-| `FORGE_LOG_LEVEL` | `INFO` | uvicorn + app log level |
 | `FORGE_HOST` | `0.0.0.0` | Bind address |
 | `FORGE_PORT` | `8000` | Bind port (both host and container) |
 | `FORGE_RELOAD` | `false` | `true` enables uvicorn auto-reload (dev only) |
@@ -204,6 +203,13 @@ to respond, runs the suite, and tears the stack down on session exit.
 | `FORGE_CELERY__TASK_DEFAULT_QUEUE` | `provisioning` | Queue name — must match the `-Q` flag on the worker's `celery` command |
 | `FORGE_CELERY__TASK_TIME_LIMIT` | `1800` | Hard kill limit in seconds (30 min) — covers a slow `terraform apply` |
 | `FORGE_CELERY__TASK_SOFT_TIME_LIMIT` | `1500` | Soft limit in seconds (25 min) — raises `SoftTimeLimitExceeded` so the task can clean up before the hard kill |
+
+### Logging (`FORGE_LOG__*`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FORGE_LOG__LEVEL` | `DEBUG` | Root logger level — `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`. Also passed to uvicorn's `--log-level`. Default is `DEBUG` to surface lifecycle events in production; bump to `INFO` once the system is stable. |
+| `FORGE_LOG__JSON_INDENT` | *(unset)* | Pretty-prints JSON logs across multiple lines when set (e.g. `2`). **Leave unset in production** — log aggregators expect one JSON record per line. |
 
 ---
 

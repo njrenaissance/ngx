@@ -36,18 +36,19 @@ def provision_resource(resource_request_id: str) -> str:
         enqueue and consume.
     """
     rr_id = uuid.UUID(resource_request_id)
+    log_ctx = {"resource_id": str(rr_id), "task": "provision_resource"}
 
     with SyncSession() as session:
         rr = session.query(ResourceRequest).filter(ResourceRequest.id == rr_id).first()
         if rr is None:
-            logger.warning("provision_resource: ResourceRequest %s not found", rr_id)
+            logger.warning("resource_request not found", extra=log_ctx)
             return "not_found"
 
         # Idempotency guard — re-entry after success is a no-op. Matters
         # because task_acks_late + task_reject_on_worker_lost can cause a
         # redelivery if the worker dies between status update and ack.
         if rr.status in {"provisioned", "failed"}:
-            logger.info("provision_resource: %s already in terminal status %s", rr_id, rr.status)
+            logger.info("already in terminal status; skipping", extra={**log_ctx, "status": rr.status})
             return str(rr.status)
 
         # `provisioning` is also a valid re-entry state: a worker may have
@@ -59,10 +60,11 @@ def provision_resource(resource_request_id: str) -> str:
         if rr.status not in {"pending", "provisioning"}:
             # Other states (destroy_requested, destroying, destroyed) are
             # not our lifecycle; refuse to drive them forward.
-            logger.warning("provision_resource: %s in non-resumable status %s; skipping", rr_id, rr.status)
+            logger.warning("non-resumable status; skipping", extra={**log_ctx, "status": rr.status})
             return str(rr.status)
 
         if rr.status == "pending":
+            logger.debug("status transition", extra={**log_ctx, "from": "pending", "to": "provisioning"})
             rr.status = "provisioning"
             session.commit()
 
@@ -75,12 +77,12 @@ def provision_resource(resource_request_id: str) -> str:
         try:
             materialize_workspace(session, rr)
         except WorkspaceMaterializationError as exc:
-            logger.error("materialize_workspace failed for %s: %s", rr_id, exc)
+            logger.error("materialize_workspace failed", extra={**log_ctx, "error": str(exc)})
             rr.status = "failed"
             session.commit()
             return str(rr.status)
 
         rr.status = "provisioned"
         session.commit()
-        logger.info("provision_resource: %s -> provisioned", rr_id)
+        logger.info("provisioned", extra={**log_ctx, "status": "provisioned"})
         return str(rr.status)
