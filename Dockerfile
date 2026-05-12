@@ -21,6 +21,11 @@ COPY src/ ./src/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
+# Copy migration and seed artefacts needed at runtime.
+COPY alembic/ ./alembic/
+COPY alembic.ini ./alembic.ini
+COPY db/ ./db/
+
 # ─── Runtime ──────────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
@@ -30,6 +35,9 @@ WORKDIR /app
 
 COPY --from=builder --chown=forge:forge /app/.venv /app/.venv
 COPY --from=builder --chown=forge:forge /app/src /app/src
+COPY --from=builder --chown=forge:forge /app/alembic /app/alembic
+COPY --from=builder --chown=forge:forge /app/alembic.ini /app/alembic.ini
+COPY --from=builder --chown=forge:forge /app/db /app/db
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app/src" \

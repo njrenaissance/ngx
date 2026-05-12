@@ -1,0 +1,140 @@
+name: Run DB Migrations
+
+# Applies pending Alembic migrations and seeds the database.
+#
+# Runs as an ECS one-shot task using the same task definition as the app
+# service, so it inherits identical environment variables and secrets
+# (including FORGE_DATABASE__PASSWORD from Secrets Manager).
+#
+# Pipeline order on merge to main:
+#   build-container.yml  →  migrate.yml  →  deploy.yml
+#
+# Both alembic upgrade head and db/seed.py are idempotent — safe to re-run
+# against an already-current schema or an already-seeded database.
+
+on:
+  workflow_run:
+    workflows: ['Build Container']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  migrate:
+    name: Migrate & Seed
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Resolve task definition ARN
+        id: task_def
+        run: |
+          TASK_DEF_ARN=$(aws ecs describe-services \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.ECS_SERVICE }}" \
+            --no-cli-pager \
+            --query 'services[0].taskDefinition' \
+            --output text)
+          echo "arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
+      - name: Resolve network config
+        id: network
+        run: |
+          NETWORK_CONFIG=$(aws ecs describe-services \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.ECS_SERVICE }}" \
+            --no-cli-pager \
+            --query 'services[0].networkConfiguration' \
+            --output json)
+          echo "config=$NETWORK_CONFIG" >> $GITHUB_OUTPUT
+
+      - name: Run alembic upgrade head
+        id: migrate
+        run: |
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --task-definition "${{ steps.task_def.outputs.arn }}" \
+            --launch-type FARGATE \
+            --network-configuration '${{ steps.network.outputs.config }}' \
+            --overrides '{
+              "containerOverrides": [{
+                "name": "app",
+                "command": ["python", "-m", "alembic", "upgrade", "head"]
+              }]
+            }' \
+            --no-cli-pager \
+            --query 'tasks[0].taskArn' \
+            --output text)
+          echo "task_arn=$TASK_ARN" >> $GITHUB_OUTPUT
+          echo "Waiting for migration task: $TASK_ARN"
+
+      - name: Wait for migration task to complete
+        run: |
+          aws ecs wait tasks-stopped \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --tasks "${{ steps.migrate.outputs.task_arn }}"
+
+      - name: Check migration exit code
+        run: |
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --tasks "${{ steps.migrate.outputs.task_arn }}" \
+            --no-cli-pager \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+          echo "Migration task exit code: $EXIT_CODE"
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Migration failed with exit code $EXIT_CODE"
+            exit 1
+          fi
+
+      - name: Run db/seed.py
+        id: seed
+        run: |
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --task-definition "${{ steps.task_def.outputs.arn }}" \
+            --launch-type FARGATE \
+            --network-configuration '${{ steps.network.outputs.config }}' \
+            --overrides '{
+              "containerOverrides": [{
+                "name": "app",
+                "command": ["python", "db/seed.py"]
+              }]
+            }' \
+            --no-cli-pager \
+            --query 'tasks[0].taskArn' \
+            --output text)
+          echo "task_arn=$TASK_ARN" >> $GITHUB_OUTPUT
+          echo "Waiting for seed task: $TASK_ARN"
+
+      - name: Wait for seed task to complete
+        run: |
+          aws ecs wait tasks-stopped \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --tasks "${{ steps.seed.outputs.task_arn }}" \
+            --cli-read-timeout 300
+
+      - name: Check seed exit code
+        run: |
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --tasks "${{ steps.seed.outputs.task_arn }}" \
+            --no-cli-pager \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+          echo "Seed task exit code: $EXIT_CODE"
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Seed failed with exit code $EXIT_CODE"
+            exit 1
+          fi

@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import RedirectResponse
 
 from forge import __version__
@@ -7,12 +8,24 @@ from forge.api.me import router as me_router
 from forge.config import settings
 
 
-def get_app() -> FastAPI:
-    """Application factory.
+def _custom_openapi(application: FastAPI):  # type: ignore[return]
+    def openapi() -> dict:
+        if application.openapi_schema:
+            return application.openapi_schema
+        schema = get_openapi(
+            title=application.title,
+            version=application.version,
+            routes=application.routes,
+        )
+        schema.setdefault("components", {})["securitySchemes"] = {"BearerAuth": {"type": "http", "scheme": "bearer"}}
+        schema["security"] = [{"BearerAuth": []}]
+        application.openapi_schema = schema
+        return schema
 
-    Returns a configured FastAPI instance. Using a factory delays heavyweight
-    initialization until invocation and lets tests build fresh app instances.
-    """
+    return openapi
+
+
+def get_app() -> FastAPI:
     application = FastAPI(
         title=f"{settings.APP_NAME} — Infrastructure Provisioning Service",
         version=__version__,
@@ -24,6 +37,8 @@ def get_app() -> FastAPI:
 
     application.include_router(health_router)
     application.include_router(me_router)
+
+    application.openapi = _custom_openapi(application)  # type: ignore[method-assign]
     return application
 
 

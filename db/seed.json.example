@@ -30,7 +30,7 @@
       "email": "alice@example.com",
       "role": "admin",
       "team": "Platform Team",
-      "api_key": "crp_dev_a11ce000000000000000000000000000"
+      "api_key_hash": "$2b$12$JQxpFhKkdGqi.9eeUNl2seCNABMJtZ9VDDn4IOsBskidqBBV2IXbq"
     },
     {
       "first_name": "Bob",
@@ -38,7 +38,7 @@
       "email": "bob@example.com",
       "role": "member",
       "team": "Platform Team",
-      "api_key": "crp_dev_b0b00000000000000000000000000000"
+      "api_key_hash": "$2b$12$sSRU4TWa7KPfrZJNX.VeK.ZH0LKDo1boAsn3pokBPHMR1WU.s6xzq"
     },
     {
       "first_name": "Carol",
@@ -46,7 +46,7 @@
       "email": "carol@example.com",
       "role": "admin",
       "team": "Payments Team",
-      "api_key": "crp_dev_ca401000000000000000000000000000"
+      "api_key_hash": "$2b$12$NnzCcADe3fSReB/gCd98E..11mZ7ZJEUxLSoQPa7Bbb8plDu8uVeW"
     },
     {
       "first_name": "Dan",
@@ -54,7 +54,115 @@
       "email": "dan@example.com",
       "role": "member",
       "team": "Payments Team",
-      "api_key": "crp_dev_da400000000000000000000000000000"
+      "api_key_hash": "$2b$12$LHOLAXr57GCtybGr2PTDCObn5m0aXGCwP2wJV7A/oYWTvWzs0rURG"
+    }
+  ],
+  "tier_policies": [
+    {
+      "tier_name": "experimental",
+      "label": "Experimental",
+      "sla_class": "best-effort",
+      "min_regions": 1,
+      "min_azs_per_region": 1,
+      "auto_expire_days": 30,
+      "approval_required": false
+    },
+    {
+      "tier_name": "dev",
+      "label": "Development",
+      "sla_class": "best-effort",
+      "min_regions": 1,
+      "min_azs_per_region": 1,
+      "auto_expire_days": 90,
+      "approval_required": false
+    },
+    {
+      "tier_name": "tier2",
+      "label": "Standard",
+      "sla_class": "99.9%",
+      "min_regions": 1,
+      "min_azs_per_region": 2,
+      "auto_expire_days": null,
+      "approval_required": false
+    },
+    {
+      "tier_name": "tier1",
+      "label": "Premium",
+      "sla_class": "99.99%",
+      "min_regions": 2,
+      "min_azs_per_region": 2,
+      "auto_expire_days": null,
+      "approval_required": false
+    }
+  ],
+  "logical_regions": [
+    {
+      "name": "ngx-region-1a",
+      "label": "NGX Region 1A",
+      "description": "Primary production region — US East (AWS us-east-1).",
+      "provider": "aws",
+      "physical_region": "us-east-1",
+      "jurisdiction": "US",
+      "platform_assigned_only": false,
+      "az_maps": [
+        {"physical_az": "us-east-1a", "az_index": 1}
+      ]
+    }
+  ],
+  "tier_region_members": [
+    {"tier": "experimental", "region": "ngx-region-1a", "priority": 1},
+    {"tier": "dev",          "region": "ngx-region-1a", "priority": 1},
+    {"tier": "tier2",        "region": "ngx-region-1a", "priority": 1},
+    {"tier": "tier1",        "region": "ngx-region-1a", "priority": 1}
+  ],
+  "resource_types": [
+    {
+      "name": "managed_database",
+      "version": 1,
+      "label": "Managed Database",
+      "latest": true,
+      "description": "Managed relational database (PostgreSQL or MySQL). AWS RDS Aurora.",
+      "base_config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["engine", "size"],
+        "properties": {
+          "engine":     {"type": "string", "enum": ["postgres", "mysql"]},
+          "size":       {"type": "string", "enum": ["small", "medium", "large", "xlarge"]},
+          "storage_gb": {"type": "integer", "minimum": 20, "maximum": 16000, "default": 100}
+        }
+      },
+      "terraform_variable_map": {
+        "engine": "db_engine",
+        "size": "db_size",
+        "storage_gb": "db_storage_gb"
+      }
+    },
+    {
+      "name": "managed_compute",
+      "version": 1,
+      "label": "Managed Compute",
+      "latest": true,
+      "description": "Managed container compute cluster. AWS ECS/EKS.",
+      "base_config_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["size"],
+        "properties": {
+          "size":         {"type": "string", "enum": ["small", "medium", "large"]},
+          "min_nodes":    {"type": "integer", "minimum": 1, "default": 2},
+          "max_nodes":    {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+          "database_url": {"type": "string"}
+        }
+      },
+      "terraform_variable_map": {
+        "size": "compute_size",
+        "min_nodes": "min_nodes",
+        "max_nodes": "max_nodes",
+        "database_url": "database_url"
+      }
     }
   ]
 }
