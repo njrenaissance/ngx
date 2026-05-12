@@ -52,9 +52,10 @@ class DatabaseSettings(BaseSettings):
     def sync_url(self) -> str:
         """psycopg2 DSN — used by Alembic (sync) and the seed script."""
         base = f"postgresql+psycopg2://{self.USER}:{self.PASSWORD}@{self.HOST}:{self.PORT}/{self.NAME}"
+        params = [f"sslmode={self.SSL_MODE}"]
         if self.SCHEMA != "public":
-            base += f"?options=-csearch_path%3D{self.SCHEMA}"
-        return base
+            params.append(f"options=-csearch_path%3D{self.SCHEMA}")
+        return base + "?" + "&".join(params)
 
 
 # Baseline configuration — lowest-priority layer. Environment variables
