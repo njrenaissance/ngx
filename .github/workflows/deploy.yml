@@ -1,22 +1,21 @@
 name: Deploy ECS Service
 
-# Triggers a rolling redeploy of the Forge ECS service whenever a fresh
-# image is pushed to ECR (i.e. after `build-container.yml` succeeds on main).
+# Triggers a rolling redeploy of the Forge ECS service after migrations complete.
 #
-# Why this exists:
-#   - Terraform manages the task definition with a stable `:latest` image
-#     reference. When CI pushes a new image to that tag, the running tasks
-#     don't automatically pull it — ECS only checks at task-launch time.
-#   - `aws ecs update-service --force-new-deployment` forces ECS to launch
-#     new tasks (which pull the latest image) and drain the old ones via
-#     the configured deployment policy.
+# Pipeline order on merge to main:
+#   build-container.yml  →  migrate.yml  →  deploy.yml
 #
-# This workflow runs AFTER build-container.yml completes successfully on
-# main. It does NOT run on PR pushes (only post-merge).
+# Why migrations run first:
+#   The new image may depend on schema changes that the current running tasks
+#   don't have yet. Running `alembic upgrade head` before the rolling deploy
+#   ensures the DB is at the correct revision before any new task starts.
+#
+# This workflow runs AFTER migrate.yml completes successfully on main.
+# It does NOT run on PR pushes (only post-merge).
 
 on:
   workflow_run:
-    workflows: ['Build Container']
+    workflows: ['Run DB Migrations']
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -29,7 +28,7 @@ jobs:
   deploy:
     name: Force-new-deployment
     runs-on: ubuntu-latest
-    # Skip if the upstream Build Container run failed.
+    # Skip if the upstream Run DB Migrations run failed.
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
