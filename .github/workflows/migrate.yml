@@ -39,6 +39,7 @@ jobs:
       - name: Resolve task definition ARN
         id: task_def
         run: |
+          set -eo pipefail
           TASK_DEF_ARN=$(aws ecs describe-services \
             --cluster "${{ vars.ECS_CLUSTER }}" \
             --services "${{ vars.ECS_SERVICE }}" \
@@ -50,17 +51,19 @@ jobs:
       - name: Resolve network config
         id: network
         run: |
+          set -eo pipefail
           NETWORK_CONFIG=$(aws ecs describe-services \
             --cluster "${{ vars.ECS_CLUSTER }}" \
             --services "${{ vars.ECS_SERVICE }}" \
             --no-cli-pager \
             --query 'services[0].networkConfiguration' \
-            --output json)
+            --output json | jq -c '.')
           echo "config=$NETWORK_CONFIG" >> $GITHUB_OUTPUT
 
       - name: Run alembic upgrade head
         id: migrate
         run: |
+          set -eo pipefail
           TASK_ARN=$(aws ecs run-task \
             --cluster "${{ vars.ECS_CLUSTER }}" \
             --task-definition "${{ steps.task_def.outputs.arn }}" \
@@ -101,6 +104,7 @@ jobs:
       - name: Run db/seed.py
         id: seed
         run: |
+          set -eo pipefail
           TASK_ARN=$(aws ecs run-task \
             --cluster "${{ vars.ECS_CLUSTER }}" \
             --task-definition "${{ steps.task_def.outputs.arn }}" \
