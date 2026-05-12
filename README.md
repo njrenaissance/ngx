@@ -279,7 +279,7 @@ ngx/
 | `infrastructure/` | All Terraform — `bootstrap/` (run-once state backend), `dev/` (CI-managed environment), `modules/` (reusable child modules), `policies/` (IAM policy JSON) |
 | `alembic/` | Fix-forward Alembic revisions. `downgrade()` is always `pass`. See [ADR-004](docs/DECISIONS.md#adr-004--alembic-migrations-are-fix-forward-only) |
 | `db/` | `seed.py` + `seed.json.example` for local dev data |
-| `docs/` | [`DECISIONS.md`](docs/DECISIONS.md), [`SPEC.md`](docs/SPEC.md), [`PLAN.md`](docs/PLAN.md), [`ERD.md`](docs/ERD.md), [`diagrams/`](docs/diagrams/) |
+| `docs/` | [`DECISIONS.md`](docs/DECISIONS.md), [`ERD.md`](docs/ERD.md), [`diagrams/`](docs/diagrams/) |
 | `tests/` | `tests/unit/` (no I/O, run with `pytest -m unit`) and `tests/integration/` (docker-compose stack, run with `pytest -m integration`) |
 
 ---
@@ -648,8 +648,6 @@ See [`CLAUDE.md`](CLAUDE.md) for the working agreement. Key rules:
 
 ## Further reading
 
-- [docs/SPEC.md](docs/SPEC.md) — product specification
-- [docs/PLAN.md](docs/PLAN.md) — delivery plan
 - [docs/ERD.md](docs/ERD.md) — data model
 - [docs/DECISIONS.md](docs/DECISIONS.md) — architectural decision records (ADR-001 through ADR-016)
 - [docs/diagrams/NGX_Networkinig.drawio](docs/diagrams/NGX_Networkinig.drawio) — editable network topology source
