@@ -152,6 +152,25 @@ resource "aws_kms_key" "main" {
             }
           }
         },
+        {
+          # CloudWatch Alarms publishes to a CMK-encrypted SNS topic on behalf
+          # of the alarm. SNS internally calls kms:GenerateDataKey to encrypt
+          # the message; without this statement the publish fails with
+          # "CloudWatch Alarms does not have authorization to access the SNS
+          # topic encryption key." The topic-level resource policy already
+          # grants sns:Publish — this is the matching key-policy half.
+          # Encrypt/Decrypt + GenerateDataKey are the minimum SNS needs; no
+          # ReEncrypt or admin actions are added.
+          Sid       = "AllowCloudWatchAlarmsToSNS"
+          Effect    = "Allow"
+          Principal = { Service = "cloudwatch.amazonaws.com" }
+          Action = [
+            "kms:GenerateDataKey*",
+            "kms:Decrypt",
+            "kms:DescribeKey",
+          ]
+          Resource = "*"
+        },
       ],
     )
   })

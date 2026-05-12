@@ -144,7 +144,7 @@ run "key_administrators_have_no_encrypt_decrypt_actions" {
 run "key_policy_grants_required_service_principals" {
   command = plan
 
-  # The three AWS services that need to use this CMK must all appear
+  # The four AWS services that need to use this CMK must all appear
   # in the policy as Service principals. Catches accidental deletion of
   # any single statement during refactors.
   assert {
@@ -169,5 +169,13 @@ run "key_policy_grants_required_service_principals" {
       s if can(regex("^logs\\.[a-z0-9-]+\\.amazonaws\\.com$", try(s.Principal.Service, "")))
     ]) == 1
     error_message = "CMK key policy must grant the regional CloudWatch Logs service principal (logs.<region>.amazonaws.com) — encrypted log groups require this."
+  }
+
+  assert {
+    condition = length([
+      for s in jsondecode(aws_kms_key.main.policy).Statement :
+      s if try(s.Principal.Service, "") == "cloudwatch.amazonaws.com"
+    ]) == 1
+    error_message = "CMK key policy must grant cloudwatch.amazonaws.com GenerateDataKey/Decrypt — CloudWatch Alarms publishes to the CMK-encrypted SNS alerts topic and the publish fails without this statement."
   }
 }
