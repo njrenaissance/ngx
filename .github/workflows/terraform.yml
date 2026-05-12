@@ -85,6 +85,42 @@ jobs:
         run: terraform validate -no-color
         working-directory: ${{ env.WORKING_DIRECTORY }}
 
+      - name: Set up tflint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.54.0
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache tflint plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.tflint.d/plugins
+          key: tflint-${{ runner.os }}-${{ hashFiles('infrastructure/.tflint.hcl') }}
+
+      - name: tflint init
+        run: tflint --init --config .tflint.hcl
+        working-directory: infrastructure
+
+      - name: tflint
+        # Scan dev/ and modules/*/ explicitly; bootstrap/ is manual-only and excluded from CI
+        run: |
+          for dir in dev modules/*/; do
+            echo "==> tflint: $dir"
+            tflint --chdir "$dir" --config "$(pwd)/.tflint.hcl"
+          done
+        working-directory: infrastructure
+
+      - name: checkov
+        # Pinned to v12 SHA; update by running: gh api repos/bridgecrewio/checkov-action/git/ref/tags/v12 --jq '.object.sha'
+        uses: bridgecrewio/checkov-action@4048c972aae68d0b983a48bb3479aab2d877b898
+        with:
+          directory: infrastructure/
+          framework: terraform
+          quiet: true
+          soft_fail_on: MEDIUM,LOW
+          hard_fail_on: HIGH,CRITICAL
+          output_format: cli
+
       # Module-level contract tests. Run in plan mode against the offline-safe
       # AWS provider config in the test file (no AWS API calls). One entry
       # per module that ships a tests/ directory — extend as new modules add
