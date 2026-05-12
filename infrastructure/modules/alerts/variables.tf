@@ -6,12 +6,20 @@ variable "name_prefix" {
 variable "kms_key_arn" {
   description = "ARN of the project CMK. Used to encrypt the SNS topic at rest (ADR-008)."
   type        = string
+  validation {
+    condition     = can(regex("^arn:aws:kms:[a-z0-9-]+:\\d{12}:key/[a-f0-9-]+$", var.kms_key_arn))
+    error_message = "kms_key_arn must be a valid KMS key ARN (arn:aws:kms:<region>:<account>:key/<uuid>)."
+  }
 }
 
 variable "alert_emails" {
   description = "List of email addresses to subscribe to the alerts SNS topic. Each address receives a confirmation email after apply — the subscription is inactive until the recipient clicks the confirmation link."
   type        = list(string)
   default     = []
+  validation {
+    condition     = alltrue([for email in var.alert_emails : can(regex("^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$", email))])
+    error_message = "All alert_emails must be valid email addresses."
+  }
 }
 
 variable "alarms_enabled" {
