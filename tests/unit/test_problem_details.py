@@ -43,3 +43,23 @@ def test_problem_details_exception_takes_precedence_over_fallback() -> None:
 
     resp = _app_with_route(route).get("/boom")
     assert_problem_details(resp, 418, "teapot")
+
+
+def test_custom_headers_are_preserved_through_handler() -> None:
+    """Headers attached to a ProblemDetailsException (e.g. WWW-Authenticate
+    on 401 responses) must survive into the final HTTP response so clients
+    can act on them — losing WWW-Authenticate breaks Bearer auth retry."""
+
+    def route() -> None:
+        raise ProblemDetailsException(
+            status=401,
+            type="urn:forge:error:unauthorized",
+            title="Unauthorized",
+            detail="Invalid or missing API key",
+            headers={"WWW-Authenticate": "Bearer", "X-Forge-Trace": "abc123"},
+        )
+
+    resp = _app_with_route(route).get("/boom")
+    assert_problem_details(resp, 401, "unauthorized")
+    assert resp.headers.get("www-authenticate") == "Bearer"
+    assert resp.headers.get("x-forge-trace") == "abc123"
