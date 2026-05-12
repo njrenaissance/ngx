@@ -11,13 +11,17 @@ from forge.api.deps import get_db_session
 from forge.api.problem_details import ProblemDetailsException
 from forge.models import AppUser
 
-UNAUTH = ProblemDetailsException(
-    status=401,
-    type="urn:forge:error:unauthorized",
-    title="Unauthorized",
-    detail="Invalid or missing API key",
-    headers={"WWW-Authenticate": "Bearer"},
-)
+
+def _unauth() -> ProblemDetailsException:
+    # Constructed fresh per raise so concurrent unauthorized requests do not
+    # share a mutable __traceback__ / __context__ across threads.
+    return ProblemDetailsException(
+        status=401,
+        type="urn:forge:error:unauthorized",
+        title="Unauthorized",
+        detail="Invalid or missing API key",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 @dataclass(frozen=True)
@@ -29,10 +33,10 @@ class AuthContext:
 def _extract_bearer(request: Request) -> str:
     header = request.headers.get("authorization")
     if not header:
-        raise UNAUTH
+        raise _unauth()
     scheme, _, token = header.partition(" ")
     if scheme.lower() != "bearer" or not token:
-        raise UNAUTH
+        raise _unauth()
     return token
 
 
@@ -58,7 +62,7 @@ def require_auth(
     raw_key = _extract_bearer(request)
     user = _verify_key(session, raw_key)
     if user is None:
-        raise UNAUTH
+        raise _unauth()
     # Targeted UPDATE avoids a load-modify-commit race; both concurrent writers
     # stamp "now" independently so the result is always monotonically correct.
     session.execute(update(AppUser).where(AppUser.id == user.id).values(last_seen_at=datetime.now(timezone.utc)))

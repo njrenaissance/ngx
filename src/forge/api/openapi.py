@@ -13,6 +13,7 @@ RFC 7807 error contract. This module patches the schema after generation to:
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 
 from fastapi import FastAPI
@@ -60,7 +61,10 @@ def build_custom_openapi(application: FastAPI) -> Callable[[], dict]:
         components_schemas.pop("HTTPValidationError", None)
         components_schemas.pop("ValidationError", None)
 
-        # Advertise application/problem+json on every error response.
+        # Advertise application/problem+json on every error response. Use
+        # setdefault so a route that ever declares a bespoke error content
+        # schema is preserved; deepcopy so future in-place mutations don't
+        # propagate through the shared module-level constant.
         for path_item in schema.get("paths", {}).values():
             for operation in path_item.values():
                 if not isinstance(operation, dict):
@@ -68,7 +72,7 @@ def build_custom_openapi(application: FastAPI) -> Callable[[], dict]:
                 for status_code, response in operation.get("responses", {}).items():
                     if not status_code.isdigit() or int(status_code) < 400:
                         continue
-                    response["content"] = _PROBLEM_RESPONSE_CONTENT
+                    response.setdefault("content", copy.deepcopy(_PROBLEM_RESPONSE_CONTENT))
 
         application.openapi_schema = schema
         return schema

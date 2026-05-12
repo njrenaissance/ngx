@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -7,6 +8,8 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
+
+logger = logging.getLogger(__name__)
 
 PROBLEM_CONTENT_TYPE = "application/problem+json"
 
@@ -71,7 +74,10 @@ def _problem_response(request: Request, exc: ProblemDetailsException) -> JSONRes
         "instance": request.url.path,
     }
     if exc.errors is not None:
-        body["errors"] = exc.errors
+        # jsonable_encoder mirrors the validation_exception_handler path so
+        # non-JSON-native values in error contexts (datetime, bytes, etc.)
+        # serialize consistently regardless of which handler emits them.
+        body["errors"] = jsonable_encoder(exc.errors)
     headers = {**(exc.headers or {}), "Content-Type": PROBLEM_CONTENT_TYPE}
     return JSONResponse(content=body, status_code=exc.status, headers=headers)
 
@@ -92,6 +98,31 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "errors": jsonable_encoder(exc.errors()),
         },
         status_code=422,
+        headers={"Content-Type": PROBLEM_CONTENT_TYPE},
+    )
+
+
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all for unexpected exceptions raised inside routes.
+
+    Logs the original exception server-side and emits a generic 500 problem
+    document. The exception ``str(exc)`` is deliberately NOT leaked to clients.
+    """
+    logger.error(
+        "Unhandled exception during %s %s",
+        request.method,
+        request.url.path,
+        exc_info=exc,
+    )
+    return JSONResponse(
+        content={
+            "type": "urn:forge:error:internal-server-error",
+            "title": "Internal Server Error",
+            "status": 500,
+            "detail": "An internal error occurred",
+            "instance": request.url.path,
+        },
+        status_code=500,
         headers={"Content-Type": PROBLEM_CONTENT_TYPE},
     )
 
@@ -127,3 +158,6 @@ def register_exception_handlers(app: FastAPI) -> None:
     # Use starlette.exceptions.HTTPException (the base class) so that
     # Starlette's own 404/405 routing errors are also caught here.
     app.add_exception_handler(HTTPException, http_exception_fallback_handler)  # type: ignore[arg-type]
+    # Catch-all for anything else (SQLAlchemyError, KeyError, etc.) so the
+    # OpenAPI claim that all 5xx are application/problem+json holds.
+    app.add_exception_handler(Exception, unhandled_exception_handler)

@@ -7,26 +7,9 @@ and fail. The integration suite uses the real broker.
 """
 
 from collections.abc import Iterator
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-
-def assert_problem_details(resp: Any, status: int, type_suffix: str) -> dict:
-    """Assert that a response is a valid RFC 7807 Problem Details body.
-
-    Returns the parsed body for further caller assertions.
-    """
-    assert resp.status_code == status
-    assert resp.headers.get("content-type") == "application/problem+json"
-    body = resp.json()
-    assert body["type"] == f"urn:forge:error:{type_suffix}"
-    assert body["status"] == status
-    assert "title" in body
-    assert "detail" in body
-    assert "instance" in body
-    return body
 
 
 @pytest.fixture(autouse=True)

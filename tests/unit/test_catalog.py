@@ -13,7 +13,7 @@ from forge.main import get_app
 from forge.models.catalog import ResourceType, ResourceTypeTierConstraint, TierPolicy
 from forge.models.identity import AppUser, Team
 from forge.models.topology import LogicalRegion
-from tests.unit.conftest import assert_problem_details
+from tests.unit._helpers import assert_problem_details
 
 pytestmark = pytest.mark.unit
 
