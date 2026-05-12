@@ -3,11 +3,6 @@ variable "name_prefix" {
   type        = string
 }
 
-variable "environment" {
-  description = "Environment name (dev, staging, prod). Recorded as a tag and folded into resource names."
-  type        = string
-}
-
 variable "vpc_id" {
   description = "VPC the cluster lives in. The DB security group is created here."
   type        = string
