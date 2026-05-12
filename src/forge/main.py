@@ -3,6 +3,7 @@ from fastapi.responses import RedirectResponse
 
 from forge import __version__
 from forge.api.health import router as health_router
+from forge.api.me import router as me_router
 from forge.config import settings
 
 
@@ -22,6 +23,7 @@ def get_app() -> FastAPI:
         return RedirectResponse(url="/docs")
 
     application.include_router(health_router)
+    application.include_router(me_router)
     return application
 
 
