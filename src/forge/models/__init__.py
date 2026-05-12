@@ -1,6 +1,7 @@
 from forge.models.base import Base
 from forge.models.catalog import ResourceType, ResourceTypeTierConstraint, TierPolicy, TierRegionMember
 from forge.models.identity import AppUser, CostCenter, Team
+from forge.models.provisioning import ApplyJob, Deployment, DeploymentAz, ResourceRequest
 from forge.models.topology import LogicalRegion, RegionAzMap
 
 __all__ = [
@@ -14,4 +15,8 @@ __all__ = [
     "TierRegionMember",
     "ResourceType",
     "ResourceTypeTierConstraint",
+    "ResourceRequest",
+    "Deployment",
+    "DeploymentAz",
+    "ApplyJob",
 ]
