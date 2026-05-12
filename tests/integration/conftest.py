@@ -11,6 +11,7 @@ Lifecycle is managed by pytest-docker:
     session exit, and `wait_until_responsive` blocks until /livez returns 200
 """
 
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -18,6 +19,9 @@ import httpx
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Make db/ importable so the seed function can be called directly.
+sys.path.insert(0, str(REPO_ROOT))
 
 
 @pytest.fixture(scope="session")
@@ -51,3 +55,32 @@ def forge_url(docker_ip: str, docker_services: pytest.FixtureRequest) -> str:
         check=_is_responsive(url),
     )
     return url
+
+
+@pytest.fixture(scope="session", autouse=True)
+def seeded_db(forge_url: str) -> None:
+    """Run alembic migrations + seed against the compose Postgres.
+
+    Depends on forge_url so we know the stack is fully up before touching the
+    DB. Both operations are idempotent — safe to run on an already-migrated,
+    already-seeded DB.
+
+    The test process connects to localhost:5432 (the published compose port);
+    FORGE_DATABASE__HOST defaults to 'localhost' so no env override is needed.
+    """
+    from alembic.config import Config
+
+    from alembic import command
+
+    alembic_cfg = Config(str(REPO_ROOT / "alembic.ini"))
+    command.upgrade(alembic_cfg, "head")
+
+    from db.seed import _load_fixtures, seed
+    from forge.db import SyncSession
+
+    fixtures = _load_fixtures()
+    with SyncSession() as session:
+        from forge.models import AppUser
+
+        if not session.query(AppUser).count():
+            seed(session, fixtures)
