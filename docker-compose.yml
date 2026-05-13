@@ -45,7 +45,10 @@ services:
       FORGE_LOG__LEVEL: ${FORGE_LOG__LEVEL:-DEBUG}
       FORGE_HOST: ${FORGE_HOST:-0.0.0.0}
       FORGE_PORT: ${FORGE_PORT:-8000}
-      FORGE_RELOAD: ${FORGE_RELOAD:-true}
+      # Default off so the image is safe to `docker run` standalone — uvicorn
+      # --reload requires source files, which only exist via the ./src bind
+      # mount below. Opt back in by setting FORGE_RELOAD=true in .env.local.
+      FORGE_RELOAD: ${FORGE_RELOAD:-false}
       FORGE_DATABASE__HOST: postgres
       FORGE_DATABASE__PORT: 5432
       FORGE_DATABASE__NAME: forge
