@@ -99,12 +99,12 @@ def materialize_workspace(session: Session, resource_request: ResourceRequest) -
         )
 
     tf_state_key = (
-        f"{settings.ENVIRONMENT}/{resource_request.team_id}/standalone/"
+        f"{settings.environment}/{resource_request.team_id}/standalone/"
         f"{resource_request.id}/{logical_region.name}/terraform.tfstate"
     )
     tf_workspace_id = tf_state_key.removesuffix("/terraform.tfstate").replace("/", "__")
 
-    packages_dir = Path(settings.terraform.PACKAGES_DIR)
+    packages_dir = Path(settings.terraform.packages_dir)
     source_terraform_dir = packages_dir / resource_type.name / f"v{resource_type.version}" / "terraform"
     if not source_terraform_dir.is_dir():
         raise WorkspaceMaterializationError(f"package terraform dir not found: {source_terraform_dir}")
@@ -118,9 +118,9 @@ def materialize_workspace(session: Session, resource_request: ResourceRequest) -
 
     (dest / "backend.tf").write_text(
         _BACKEND_TF_TEMPLATE.format(
-            bucket=settings.terraform.MANAGED_RESOURCES_BUCKET,
+            bucket=settings.terraform.managed_resources_bucket,
             key=tf_state_key,
-            region=settings.terraform.MANAGED_RESOURCES_REGION,
+            region=settings.terraform.managed_resources_region,
         )
     )
 

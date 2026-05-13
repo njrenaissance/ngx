@@ -13,10 +13,10 @@ from forge.config import settings
 def main() -> None:
     uvicorn.run(
         "forge.main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        reload=settings.RELOAD,
-        log_level=settings.log.LEVEL.lower(),
+        host=settings.host,
+        port=settings.port,
+        reload=settings.reload,
+        log_level=settings.log.level.lower(),
     )
 
 

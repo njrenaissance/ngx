@@ -103,7 +103,7 @@ def configure_root_logger() -> None:
     if any(isinstance(h, logging.StreamHandler) and h.stream is sys.stdout for h in root.handlers):
         return
 
-    level = getattr(logging, settings.log.LEVEL.upper(), logging.INFO)
+    level = getattr(logging, settings.log.level.upper(), logging.INFO)
     root.setLevel(level)
 
     # stdout (not stderr) per Twelve-Factor App §XI and the Kubernetes/CRI
@@ -113,7 +113,7 @@ def configure_root_logger() -> None:
     # and panics that bypass the application logger entirely.
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(level)
-    handler.setFormatter(_JsonFormatter(indent=settings.log.JSON_INDENT))
+    handler.setFormatter(_JsonFormatter(indent=settings.log.json_indent))
     root.addHandler(handler)
 
 

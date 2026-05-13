@@ -1,0 +1,44 @@
+{
+  "_note": "Operator reference only. The application does NOT read this file. It mirrors the structure of DEFAULT_SETTINGS in src/forge/config.py so you can see every available setting and its baseline value at a glance. Override at runtime with FORGE_* environment variables (env vars stay uppercase; nested settings use a double underscore, e.g. FORGE_LOG__LEVEL, FORGE_DATABASE__HOST) or a .env file. Python attribute names on the settings object are lowercase (e.g. settings.host, settings.log.level).",
+
+  "app_name": "Forge",
+  "environment": "dev",
+  "host": "127.0.0.1",
+  "port": 8000,
+  "reload": false,
+  "request_timeout": 30,
+  "keepalive_timeout": 2,
+  "shutdown_timeout": 25,
+
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "name": "forge",
+    "user": "forge",
+    "password": "",
+    "ssl_mode": "disable",
+    "schema": "public",
+    "connect_timeout": 10,
+    "pool_timeout": 30,
+    "pool_recycle": 1800
+  },
+
+  "celery": {
+    "broker_url": "",
+    "task_default_queue": "provisioning",
+    "task_time_limit": 1800,
+    "task_soft_time_limit": 1500
+  },
+
+  "terraform": {
+    "managed_resources_bucket": "",
+    "managed_resources_region": "",
+    "packages_dir": "./packages",
+    "binary": "terraform"
+  },
+
+  "log": {
+    "level": "DEBUG",
+    "json_indent": null
+  }
+}

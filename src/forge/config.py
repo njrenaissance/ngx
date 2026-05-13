@@ -1,7 +1,9 @@
+import os
+import warnings
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -9,69 +11,89 @@ from pydantic_settings import (
 )
 from pydantic_settings.sources import InitSettingsSource
 
+# DatabaseSettings declares a `schema` field — that name shadows the
+# deprecated BaseModel.schema() method, so pydantic emits a UserWarning
+# at class-creation time. The shadow is intentional (we want the lowercase
+# `schema` attribute to match the FORGE_DATABASE__SCHEMA env var contract);
+# silence the warning module-wide so app startup logs stay clean.
+warnings.filterwarnings(
+    "ignore",
+    message=r'Field name "schema" in "DatabaseSettings" shadows an attribute in parent',
+    category=UserWarning,
+)
+
 # Baseline configuration — lowest-priority layer. Environment variables
 # (prefixed FORGE_) and an optional .env file override these per-field.
 #
-# Nested settings classes (database, celery) draw their defaults from the
-# matching nested dict here via the _build_customise_sources(...) helper
-# below. PASSWORD and the Celery broker URL default to empty strings so
-# the process boots; connect-time failures surface missing config.
+# Keys mirror the lowercase Python attribute names on the BaseSettings
+# subclasses below. Env vars stay uppercase (FORGE_HOST, FORGE_LOG__LEVEL)
+# — pydantic-settings is case-insensitive by default, so FORGE_HOST maps
+# to the `host` field automatically.
+#
+# Nested settings classes (database, celery, terraform, log) draw their
+# defaults from the matching nested dict here via the
+# _build_customise_sources(...) helper below. PASSWORD and the Celery
+# broker URL default to empty strings so the process boots; connect-time
+# failures surface missing config.
 #
 # When adding a new nested BaseSettings class, also add its top-level key
 # to _NESTED_SETTINGS_KEYS so Settings.settings_customise_sources knows
 # to exclude its dict from the top-level baseline.
 DEFAULT_SETTINGS: dict[str, Any] = {
-    "APP_NAME": "Forge",
-    "ENVIRONMENT": "dev",
-    "HOST": "0.0.0.0",
-    "PORT": 8000,
-    "RELOAD": False,
-    "REQUEST_TIMEOUT": 30,
-    "KEEPALIVE_TIMEOUT": 2,
-    "SHUTDOWN_TIMEOUT": 25,
+    "app_name": "Forge",
+    "environment": "dev",
+    # Loopback by default — safer for `python -m forge` on a dev laptop.
+    # docker-compose and the ECS task definition override to 0.0.0.0
+    # via FORGE_HOST so production behaviour is unchanged.
+    "host": "127.0.0.1",
+    "port": 8000,
+    "reload": False,
+    "request_timeout": 30,
+    "keepalive_timeout": 2,
+    "shutdown_timeout": 25,
     "database": {
-        "HOST": "localhost",
-        "PORT": 5432,
-        "NAME": "forge",
-        "USER": "forge",
-        "PASSWORD": "",
-        "SSL_MODE": "disable",
-        "SCHEMA": "public",
-        "CONNECT_TIMEOUT": 10,
-        "POOL_TIMEOUT": 30,
-        "POOL_RECYCLE": 1800,
+        "host": "localhost",
+        "port": 5432,
+        "name": "forge",
+        "user": "forge",
+        "password": "",
+        "ssl_mode": "disable",
+        "schema": "public",
+        "connect_timeout": 10,
+        "pool_timeout": 30,
+        "pool_recycle": 1800,
     },
     "celery": {
-        "BROKER_URL": "",
+        "broker_url": "",
         # Cross-file invariant: this queue name must match the `-Q` flag on the
         # worker's celery command in infrastructure/modules/ecs_service/main.tf
         # (search for "-Q", "provisioning"). The worker only consumes the
         # queue(s) it's started with; a mismatch means tasks accumulate in
         # the broker forever with no consumer. There is no enforced single
         # source of truth — change requires editing both places.
-        "TASK_DEFAULT_QUEUE": "provisioning",
-        "TASK_TIME_LIMIT": 1800,  # 30 min hard kill — covers a slow terraform apply
-        "TASK_SOFT_TIME_LIMIT": 1500,  # 25 min soft — leaves room for in-task cleanup
+        "task_default_queue": "provisioning",
+        "task_time_limit": 1800,  # 30 min hard kill — covers a slow terraform apply
+        "task_soft_time_limit": 1500,  # 25 min soft — leaves room for in-task cleanup
     },
     "terraform": {
         # Empty strings fail loud at materialize-time when the worker tries to
         # render backend.tf — cloud envs must set FORGE_TERRAFORM__MANAGED_RESOURCES_*.
-        "MANAGED_RESOURCES_BUCKET": "",
-        "MANAGED_RESOURCES_REGION": "",
-        "PACKAGES_DIR": "./packages",
+        "managed_resources_bucket": "",
+        "managed_resources_region": "",
+        "packages_dir": "./packages",
         # Defaults to the `terraform` binary on PATH. Tests override via
         # FORGE_TERRAFORM__BINARY to point at a deterministic fake script —
         # accepts a shell-style command (e.g. "python /path/to/fake.py") which
         # TerraformRunner splits with shlex before invoking subprocess.
-        "BINARY": "terraform",
+        "binary": "terraform",
     },
     "log": {
         # DEBUG default surfaces startup, db init, task lifecycle, and AZ
         # selection events in production logs. Bump to INFO/WARNING via
         # FORGE_LOG__LEVEL once the system is stable and the noise becomes
         # a cost concern.
-        "LEVEL": "DEBUG",
-        "JSON_INDENT": None,
+        "level": "DEBUG",
+        "json_indent": None,
     },
 }
 
@@ -80,8 +102,54 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 # and its own _build_customise_sources binding. Anything NOT in this set is
 # treated as a flat Settings field and flows into the top-level baseline.
 # Failing to add a new nested class here means its defaults dict would leak
-# into Settings as a stray field at construction time.
+# into Settings as a stray field at construction time — and with
+# extra="forbid" that surfaces as a loud ValidationError rather than a
+# silent type mismatch.
 _NESTED_SETTINGS_KEYS: frozenset[str] = frozenset({"database", "celery", "terraform", "log"})
+
+
+def _check_unknown_env_vars(
+    settings_instance: BaseSettings,
+    *,
+    allowed_nested_prefixes: frozenset[str] = frozenset(),
+) -> None:
+    """Raise ValueError if any FORGE_* env var doesn't map to a defined field.
+
+    Pydantic-settings silently drops unknown env vars even when extra="forbid"
+    — that flag only governs init kwargs and the resolved field dict, not raw
+    env-source filtering. So we scan os.environ ourselves at validation time
+    and surface typos like FORGE_PROT=8000 (instead of FORGE_PORT) as a
+    ValidationError at config load.
+
+    For the top-level Settings class, env vars belonging to a registered
+    nested class (FORGE_DATABASE__*, FORGE_LOG__*, ...) are passed through —
+    those are validated by the corresponding nested class's own check.
+    """
+    cfg = settings_instance.model_config
+    prefix = cfg.get("env_prefix") or ""
+    case_sensitive = bool(cfg.get("case_sensitive", False))
+
+    fields = type(settings_instance).model_fields
+    known = {(name if case_sensitive else name.upper()) for name in fields}
+    allowed_nested = {(p if case_sensitive else p.upper()) for p in allowed_nested_prefixes}
+
+    for raw_key in os.environ:
+        key = raw_key if case_sensitive else raw_key.upper()
+        norm_prefix = prefix if case_sensitive else prefix.upper()
+        if not key.startswith(norm_prefix):
+            continue
+        stripped = key[len(norm_prefix) :]
+        if not stripped:
+            continue
+        # Nested env vars use double-underscore as the namespace delimiter.
+        # Defer them to the nested class's own validator.
+        if "__" in stripped:
+            ns = stripped.split("__", 1)[0]
+            if ns in allowed_nested:
+                continue
+            raise ValueError(f"Unknown {prefix}* environment variable: {raw_key} (no nested namespace '{ns.lower()}')")
+        if stripped not in known:
+            raise ValueError(f"Unknown {prefix}* environment variable: {raw_key}")
 
 
 def _build_customise_sources(defaults_key: str):
@@ -124,24 +192,32 @@ class LogSettings(BaseSettings):
         env_prefix="FORGE_LOG__",
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore",
+        extra="forbid",
     )
 
-    LEVEL: str
+    # Typed at load-time: a typo like FORGE_LOG__LEVEL=INF0 raises a
+    # ValidationError here instead of reaching uvicorn.run(log_level="inf0")
+    # and crashing at boot.
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     # Pretty-prints JSON across multiple lines when set (useful for local
     # eyeballing). MUST stay None in production: log aggregators (CloudWatch,
     # Datadog, etc.) parse one JSON record per line and an indented record
     # spans many lines, breaking ingestion.
-    JSON_INDENT: int | None = None
+    json_indent: int | None = None
 
-    @field_validator("JSON_INDENT")
+    @field_validator("json_indent")
     @classmethod
     def _indent_non_negative(cls, v: int | None) -> int | None:
         # json.dumps accepts any int but negative values produce a confusing
         # mix (no indent + leading newlines). Reject loud at config-load.
         if v is not None and v < 0:
-            raise ValueError("JSON_INDENT must be None or >= 0")
+            raise ValueError("json_indent must be None or >= 0")
         return v
+
+    @model_validator(mode="after")
+    def _reject_unknown_env_vars(self) -> "LogSettings":
+        _check_unknown_env_vars(self)
+        return self
 
     settings_customise_sources = _build_customise_sources("log")
 
@@ -149,7 +225,7 @@ class LogSettings(BaseSettings):
 class CelerySettings(BaseSettings):
     """Celery / Redis broker settings.
 
-    Local dev points BROKER_URL at the docker-compose redis service.
+    Local dev points broker_url at the docker-compose redis service.
     Production points it at an AWS Elasticache for Redis primary endpoint
     via the ECS task definition. Use rediss:// for TLS — the app has no
     transport-mode branches.
@@ -172,19 +248,24 @@ class CelerySettings(BaseSettings):
         env_prefix="FORGE_CELERY__",
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore",
+        extra="forbid",
     )
 
-    BROKER_URL: str
-    TASK_DEFAULT_QUEUE: str
+    broker_url: str
+    task_default_queue: str
     # Hard time limit in seconds — Celery SIGKILLs the worker child after
     # this. Long enough for `terraform apply` on a database to finish,
     # short enough to recover a stuck worker. Tune per environment via
     # FORGE_CELERY__TASK_TIME_LIMIT.
-    TASK_TIME_LIMIT: int
+    task_time_limit: int
     # Soft time limit raises SoftTimeLimitExceeded inside the task so it
-    # can clean up before the hard kill. Should be lower than TASK_TIME_LIMIT.
-    TASK_SOFT_TIME_LIMIT: int
+    # can clean up before the hard kill. Should be lower than task_time_limit.
+    task_soft_time_limit: int
+
+    @model_validator(mode="after")
+    def _reject_unknown_env_vars(self) -> "CelerySettings":
+        _check_unknown_env_vars(self)
+        return self
 
     settings_customise_sources = _build_customise_sources("celery")
 
@@ -194,12 +275,12 @@ class TerraformSettings(BaseSettings):
 
     The worker materializes per-request Terraform workspaces under
     /tmp/forge-workspaces/ by copying the matching versioned package from
-    PACKAGES_DIR and rendering a backend.tf pointing at the S3 state bucket.
+    packages_dir and rendering a backend.tf pointing at the S3 state bucket.
 
-    MANAGED_RESOURCES_BUCKET / MANAGED_RESOURCES_REGION are blank in
+    managed_resources_bucket / managed_resources_region are blank in
     DEFAULT_SETTINGS so cloud envs must set
     FORGE_TERRAFORM__MANAGED_RESOURCES_BUCKET and
-    FORGE_TERRAFORM__MANAGED_RESOURCES_REGION explicitly. PACKAGES_DIR
+    FORGE_TERRAFORM__MANAGED_RESOURCES_REGION explicitly. packages_dir
     defaults to ./packages (resolved relative to the worker's CWD inside the
     container — docker-compose mounts the host packages/ tree there).
 
@@ -213,13 +294,18 @@ class TerraformSettings(BaseSettings):
         env_prefix="FORGE_TERRAFORM__",
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore",
+        extra="forbid",
     )
 
-    MANAGED_RESOURCES_BUCKET: str
-    MANAGED_RESOURCES_REGION: str
-    PACKAGES_DIR: str
-    BINARY: str
+    managed_resources_bucket: str
+    managed_resources_region: str
+    packages_dir: str
+    binary: str
+
+    @model_validator(mode="after")
+    def _reject_unknown_env_vars(self) -> "TerraformSettings":
+        _check_unknown_env_vars(self)
+        return self
 
     settings_customise_sources = _build_customise_sources("terraform")
 
@@ -244,39 +330,44 @@ class DatabaseSettings(BaseSettings):
         env_prefix="FORGE_DATABASE__",
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore",
+        extra="forbid",
     )
 
-    HOST: str
-    PORT: int
-    NAME: str
-    USER: str
-    PASSWORD: str
-    SSL_MODE: str
-    SCHEMA: str
+    host: str
+    port: int
+    name: str
+    user: str
+    password: str
+    ssl_mode: str
+    schema: str  # type: ignore[assignment]  # shadows deprecated BaseModel.schema() — intentional, see warning filter at top of file
 
     # Connection pool — tune for Aurora Serverless v2 idle-connection behaviour.
-    CONNECT_TIMEOUT: int  # seconds to wait for TCP connect to the DB host
-    POOL_TIMEOUT: int  # seconds a caller waits when the pool is exhausted
-    POOL_RECYCLE: int  # recycle interval (< Aurora idle timeout)
+    connect_timeout: int  # seconds to wait for TCP connect to the DB host
+    pool_timeout: int  # seconds a caller waits when the pool is exhausted
+    pool_recycle: int  # recycle interval (< Aurora idle timeout)
+
+    @model_validator(mode="after")
+    def _reject_unknown_env_vars(self) -> "DatabaseSettings":
+        _check_unknown_env_vars(self)
+        return self
 
     settings_customise_sources = _build_customise_sources("database")
 
     @property
     def url(self) -> str:
         """asyncpg DSN — used by the async SQLAlchemy engine at runtime."""
-        base = f"postgresql+asyncpg://{self.USER}:{self.PASSWORD}@{self.HOST}:{self.PORT}/{self.NAME}"
-        if self.SCHEMA != "public":
-            base += f"?server_settings[search_path]={self.SCHEMA}"
+        base = f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
+        if self.schema != "public":
+            base += f"?server_settings[search_path]={self.schema}"
         return base
 
     @property
     def sync_url(self) -> str:
         """psycopg2 DSN — used by Alembic (sync) and the seed script."""
-        base = f"postgresql+psycopg2://{self.USER}:{self.PASSWORD}@{self.HOST}:{self.PORT}/{self.NAME}"
-        params = [f"sslmode={self.SSL_MODE}"]
-        if self.SCHEMA != "public":
-            params.append(f"options=-csearch_path%3D{self.SCHEMA}")
+        base = f"postgresql+psycopg2://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
+        params = [f"sslmode={self.ssl_mode}"]
+        if self.schema != "public":
+            params.append(f"options=-csearch_path%3D{self.schema}")
         return base + "?" + "&".join(params)
 
 
@@ -294,25 +385,27 @@ class Settings(BaseSettings):
         env_prefix="FORGE_",
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore",
+        # Fails loud on unknown FORGE_* env vars (e.g. FORGE_PROT=8000)
+        # instead of silently swallowing the typo.
+        extra="forbid",
     )
 
-    APP_NAME: str
-    ENVIRONMENT: str
-    HOST: str
-    PORT: int
-    RELOAD: bool
+    app_name: str
+    environment: str
+    host: str
+    port: int
+    reload: bool
 
     # Request handling — tune these together with the ALB and ECS stopTimeout.
-    # REQUEST_TIMEOUT < ALB idle timeout (60 s default) — cancel slow handlers
+    # request_timeout < ALB idle timeout (60 s default) — cancel slow handlers
     #   before the ALB returns a 504 to the client.
-    # KEEPALIVE_TIMEOUT < ALB idle timeout — prevent the ALB from closing a
+    # keepalive_timeout < ALB idle timeout — prevent the ALB from closing a
     #   connection that uvicorn still considers alive.
-    # SHUTDOWN_TIMEOUT < ECS stopTimeout (30 s default) — drain in-flight
+    # shutdown_timeout < ECS stopTimeout (30 s default) — drain in-flight
     #   requests before ECS sends SIGKILL.
-    REQUEST_TIMEOUT: int
-    KEEPALIVE_TIMEOUT: int
-    SHUTDOWN_TIMEOUT: int
+    request_timeout: int
+    keepalive_timeout: int
+    shutdown_timeout: int
 
     # Nested classes own their own env-var loading and DEFAULT_SETTINGS lookup
     # via _build_customise_sources. They construct themselves from () here.
@@ -320,6 +413,16 @@ class Settings(BaseSettings):
     celery: CelerySettings = Field(default_factory=lambda: CelerySettings())  # type: ignore[call-arg]
     terraform: TerraformSettings = Field(default_factory=lambda: TerraformSettings())  # type: ignore[call-arg]
     log: LogSettings = Field(default_factory=lambda: LogSettings())  # type: ignore[call-arg]
+
+    @model_validator(mode="after")
+    def _reject_unknown_env_vars(self) -> "Settings":
+        # Top-level FORGE_* env vars — anything with __ defers to the nested
+        # class's own validator. So FORGE_DATABASE__HOST is allowed through
+        # here and DatabaseSettings._reject_unknown_env_vars catches typos
+        # like FORGE_DATABASE__HOSP. A bare FORGE_FOOBAR with no __ that
+        # doesn't match a top-level field name raises here.
+        _check_unknown_env_vars(self, allowed_nested_prefixes=_NESTED_SETTINGS_KEYS)
+        return self
 
     @classmethod
     def settings_customise_sources(

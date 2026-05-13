@@ -13,7 +13,7 @@ locals {
     { name = "FORGE_DATABASE__SSL_MODE", value = var.database_ssl_mode },
     # The broker URL uses rediss:// (not redis://) because the Elasticache
     # replication group has transit_encryption_enabled = true. Pydantic-settings
-    # reads this verbatim as forge.settings.celery.BROKER_URL. The path /0
+    # reads this verbatim as forge.settings.celery.broker_url. The path /0
     # selects Redis logical database 0 — Celery's default.
     { name = "FORGE_CELERY__BROKER_URL", value = "rediss://${var.cache_endpoint}:${var.cache_port}/0" },
     # Managed-resources backend env (issue #51 / E.3). The api never touches

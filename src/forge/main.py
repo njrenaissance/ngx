@@ -23,23 +23,23 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
     logger.info(
         "app startup",
         extra={
-            "app_name": settings.APP_NAME,
+            "app_name": settings.app_name,
             "version": __version__,
-            "environment": settings.ENVIRONMENT,
-            "host": settings.HOST,
-            "port": settings.PORT,
-            "log_level": settings.log.LEVEL,
+            "environment": settings.environment,
+            "host": settings.host,
+            "port": settings.port,
+            "log_level": settings.log.level,
         },
     )
     yield
-    logger.info("app shutdown: disposing database engine", extra={"app_name": settings.APP_NAME})
+    logger.info("app shutdown: disposing database engine", extra={"app_name": settings.app_name})
     sync_engine.dispose()
 
 
 def get_app() -> FastAPI:
     configure_root_logger()
     application = FastAPI(
-        title=f"{settings.APP_NAME} — Infrastructure Provisioning Service",
+        title=f"{settings.app_name} — Infrastructure Provisioning Service",
         version=__version__,
         lifespan=_lifespan,
     )

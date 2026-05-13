@@ -29,13 +29,13 @@ celery_app = Celery("forge")
 _result_backend = f"db+{settings.database.sync_url}"
 
 celery_app.conf.update(
-    broker_url=settings.celery.BROKER_URL,
+    broker_url=settings.celery.broker_url,
     result_backend=_result_backend,
-    task_default_queue=settings.celery.TASK_DEFAULT_QUEUE,
-    # Time limits — hard kill at TASK_TIME_LIMIT, soft signal earlier so
+    task_default_queue=settings.celery.task_default_queue,
+    # Time limits — hard kill at task_time_limit, soft signal earlier so
     # the task can clean up. Both are tunable via FORGE_CELERY__* env vars.
-    task_time_limit=settings.celery.TASK_TIME_LIMIT,
-    task_soft_time_limit=settings.celery.TASK_SOFT_TIME_LIMIT,
+    task_time_limit=settings.celery.task_time_limit,
+    task_soft_time_limit=settings.celery.task_soft_time_limit,
     # Acks late + reject on worker lost: if a worker process dies mid-task,
     # the message is requeued rather than silently dropped. Provisioning
     # tasks must not be lost.
@@ -77,11 +77,11 @@ def _on_worker_ready(**_kwargs: object) -> None:
         "celery worker ready",
         extra={
             "version": __version__,
-            "environment": settings.ENVIRONMENT,
-            "queue": settings.celery.TASK_DEFAULT_QUEUE,
-            "broker_url": settings.celery.BROKER_URL,
-            "task_time_limit": settings.celery.TASK_TIME_LIMIT,
-            "task_soft_time_limit": settings.celery.TASK_SOFT_TIME_LIMIT,
+            "environment": settings.environment,
+            "queue": settings.celery.task_default_queue,
+            "broker_url": settings.celery.broker_url,
+            "task_time_limit": settings.celery.task_time_limit,
+            "task_soft_time_limit": settings.celery.task_soft_time_limit,
         },
     )
 
@@ -89,7 +89,7 @@ def _on_worker_ready(**_kwargs: object) -> None:
 @worker_shutdown.connect(dispatch_uid="forge.workers.shutdown")
 def _on_worker_shutdown(**_kwargs: object) -> None:
     """Fired when the worker is shutting down (after warm shutdown drains)."""
-    logger.info("celery worker shutdown", extra={"queue": settings.celery.TASK_DEFAULT_QUEUE})
+    logger.info("celery worker shutdown", extra={"queue": settings.celery.task_default_queue})
 
 
 celery_app.autodiscover_tasks(["forge.workers"])

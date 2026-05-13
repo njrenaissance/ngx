@@ -17,7 +17,7 @@ Hard rules enforced here:
     never leak into APPLY_JOB.log_sanitized or DEPLOYMENT.last_error.
     See SPEC Appendix B rule 1.
 
-The binary path is `settings.terraform.BINARY` (default "terraform"). Tests
+The binary path is `settings.terraform.binary` (default "terraform"). Tests
 override via FORGE_TERRAFORM__BINARY to point at tests/_fake_terraform/
 fake_terraform.py — accepts a shell-style command string which we split
 with shlex so "python /path/to/fake.py" works without shell=True.
@@ -131,7 +131,7 @@ class TerraformRunner:
         # split list becomes the leading argv elements; per-method args extend it.
         # posix=False keeps Windows backslashes intact (POSIX mode treats `\`
         # as an escape char and would mangle "C:\Users\..\python.exe").
-        cmd_str = binary if binary is not None else settings.terraform.BINARY
+        cmd_str = binary if binary is not None else settings.terraform.binary
         self._argv_prefix: list[str] = shlex.split(cmd_str, posix=False)
         if not self._argv_prefix:
             raise ValueError("terraform binary must be a non-empty command")
