@@ -119,12 +119,25 @@ services:
       # an AWS account overrides via FORGE_TERRAFORM__BINARY=terraform in
       # a top-level .env (and supplies AWS_* credentials separately).
       FORGE_TERRAFORM__BINARY: ${FORGE_TERRAFORM__BINARY:-python /app/tests/_fake_terraform/fake_terraform.py}
+      # AWS credentials — passed through from the host .env when set. The
+      # default `:-` keeps the var present-but-empty so terraform's AWS
+      # provider just falls back to the next link in the credential chain.
+      # See docs/runbooks/real-aws-provisioning.md and .env.example for the
+      # two supported recipes (profile + ~/.aws mount, or static keys).
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     volumes:
       - ./src:/app/src:ro
       - ./packages:/app/packages:ro
       # The fake terraform script lives under tests/ — mount read-only into
       # the worker so the FORGE_TERRAFORM__BINARY default above resolves.
       - ./tests/_fake_terraform:/app/tests/_fake_terraform:ro
+      # Uncomment for AWS_PROFILE auth (option (a) in .env.example). Read-only
+      # mount of the host SSO / credentials cache. Not needed for static-key
+      # auth (option b) or for the default fake-terraform path.
+      # - ~/.aws:/root/.aws:ro
     depends_on:
       postgres:
         condition: service_healthy

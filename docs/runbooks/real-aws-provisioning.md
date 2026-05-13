@@ -43,12 +43,48 @@ resource via the Forge worker + the pinned `terraform` CLI.
    on `$PATH` (the pinned 1.10.0 binary baked into the image). Nothing
    to override there.
 
-2. **Provide AWS credentials to the worker.** Locally via `~/.aws/`
-   mounted into the worker container, or `AWS_ACCESS_KEY_ID` /
-   `AWS_SECRET_ACCESS_KEY` env vars. In ECS the task role is the
+2. **Provide AWS credentials to the worker.** Pick one of the two
+   recipes below; both are wired into [docker-compose.yml](../../docker-compose.yml)
+   and [.env.example](../../.env.example). In ECS the task role is the
    credential — already scoped to S3 + KMS on the managed-resources
    bucket and CMK only (see `infrastructure/modules/ecs_service/main.tf`,
-   `aws_iam_role_policy "ecs_worker_managed_resources"`).
+   `aws_iam_role_policy "ecs_worker_managed_resources"`), so this section
+   is local-dev only.
+
+   **Option A — `AWS_PROFILE` (recommended; uses your SSO/sts cache).**
+   1. In `.env`, uncomment and set:
+      ```sh
+      AWS_PROFILE=<your-profile>   # must work for `aws sts get-caller-identity` on the host
+      AWS_REGION=us-east-1
+      ```
+   2. In `docker-compose.yml`, uncomment the `~/.aws:/root/.aws:ro` mount
+      under the worker service's `volumes:`.
+   3. Restart the worker and verify:
+      ```sh
+      docker compose up -d worker
+      docker compose exec worker aws sts get-caller-identity
+      ```
+      Output should match `aws sts get-caller-identity --profile <your-profile>`
+      on the host.
+
+   **Option B — static keys (ephemeral demo accounts only).**
+   1. In `.env`, uncomment and set:
+      ```sh
+      AWS_ACCESS_KEY_ID=<temporary-sts-key>
+      AWS_SECRET_ACCESS_KEY=<temporary-sts-secret>
+      AWS_REGION=us-east-1
+      ```
+   2. No volume mount needed.
+   3. Same verification:
+      ```sh
+      docker compose up -d worker
+      docker compose exec worker aws sts get-caller-identity
+      ```
+
+   Do **not** combine options — `AWS_PROFILE` set alongside static keys
+   produces confusing precedence (the SDK prefers the env keys but
+   terraform's provider chain can resolve differently depending on
+   region resolution order). Pick one, leave the other commented.
 
 3. **POST a request:**
    ```sh
