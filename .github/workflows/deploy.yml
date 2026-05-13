@@ -28,6 +28,9 @@ jobs:
   deploy:
     name: Force-new-deployment
     runs-on: ubuntu-latest
+    # Requires a human reviewer per the GitHub Environment "production"
+    # configuration. Configure under Repo Settings → Environments.
+    environment: production
     # Skip if the upstream Run DB Migrations run failed.
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
