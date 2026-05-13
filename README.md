@@ -35,32 +35,19 @@ Reviewers can hit these directly — no local setup required.
 
 ## Architecture at a glance
 
-See [`docs/diagrams/NGX_Networkinig.drawio`](docs/diagrams/NGX_Networkinig.drawio)
-for the full network topology. Egress flows through a single NAT gateway
+![Forge network topology](docs/diagrams/NGX_Networking.png)
+
+See [`docs/diagrams/NGX_Networking.drawio`](docs/diagrams/NGX_Networking.drawio)
+for the editable source. Egress flows through a single NAT gateway
 in `us-east-1a`.
 
-```text
-              ┌──────────┐
-   Internet → │   ALB    │  (forge-dev-alb :80)
-              └────┬─────┘
-                   ▼
-              ┌──────────────────┐        ┌──────────────────┐
-              │ API ECS Fargate  │──SQL──▶│  Aurora Postgres │
-              │ uvicorn :8000    │        └──────────────────┘
-              └────────┬─────────┘
-                       │ enqueue (rediss://)
-                       ▼
-              ┌──────────────────┐
-              │ ElastiCache      │
-              │ Redis (broker)   │
-              └────────┬─────────┘
-                       │ consume
-                       ▼
-              ┌──────────────────┐
-              │ Worker ECS       │──▶ Terraform ──▶ AWS
-              │ Fargate (celery) │
-              └──────────────────┘
-```
+Request flow: the ALB (`forge-dev-alb` on `:80`) terminates Internet
+traffic and forwards to the API task (`uvicorn :8000`), which persists
+incoming provisioning requests to **Aurora Postgres** over SQL and
+enqueues a job onto **ElastiCache Redis** over `rediss://` (TLS). The
+Celery worker task consumes from the same queue and invokes Terraform
+to apply changes against AWS. API and worker run as separate ECS
+Fargate tasks but share the image and the broker.
 
 The Forge container is built on every push to `main` and published to
 Amazon ECR (`<account>.dkr.ecr.<region>.amazonaws.com/forge-<env>`). Both
@@ -753,5 +740,5 @@ See [`CLAUDE.md`](CLAUDE.md) for the working agreement. Key rules:
 
 - [docs/ERD.md](docs/ERD.md) — data model
 - [docs/DECISIONS.md](docs/DECISIONS.md) — architectural decision records (ADR-001 through ADR-016)
-- [docs/diagrams/NGX_Networkinig.drawio](docs/diagrams/NGX_Networkinig.drawio) — editable network topology source
+- [docs/diagrams/NGX_Networking.drawio](docs/diagrams/NGX_Networking.drawio) — editable network topology source
 - [CLAUDE.md](CLAUDE.md) — engineering working agreement
