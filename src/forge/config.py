@@ -197,13 +197,28 @@ class LogSettings(BaseSettings):
 
     # Typed at load-time: a typo like FORGE_LOG__LEVEL=INF0 raises a
     # ValidationError here instead of reaching uvicorn.run(log_level="inf0")
-    # and crashing at boot.
+    # and crashing at boot. The mode="before" validator on `level` below
+    # uppercases the input first, so FORGE_LOG__LEVEL=debug, Debug, and
+    # DEBUG all resolve to "DEBUG" — matches the historical behaviour
+    # where logging.py did .upper() and __main__.py did .lower() at the
+    # point of use.
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     # Pretty-prints JSON across multiple lines when set (useful for local
     # eyeballing). MUST stay None in production: log aggregators (CloudWatch,
     # Datadog, etc.) parse one JSON record per line and an indented record
     # spans many lines, breaking ingestion.
     json_indent: int | None = None
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def _upper_level(cls, v: object) -> object:
+        # Normalise to upper-case before the Literal check so operators can
+        # set FORGE_LOG__LEVEL=debug (matches Python's logging convention)
+        # without tripping a validation error. Non-string inputs pass through
+        # untouched so the Literal still rejects them with a clear error.
+        if isinstance(v, str):
+            return v.upper()
+        return v
 
     @field_validator("json_indent")
     @classmethod

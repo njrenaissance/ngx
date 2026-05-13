@@ -57,12 +57,23 @@ class TestLogLevelTyped:
         log = LogSettings()  # type: ignore[call-arg]
         assert log.level == level
 
-    def test_lowercase_log_level_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # The Literal is case-sensitive — lowercase "info" is not in the set.
-        # Forces operators to use canonical Python logging level names.
-        monkeypatch.setenv("FORGE_LOG__LEVEL", "info")
-        with pytest.raises(ValidationError):
-            LogSettings()  # type: ignore[call-arg]
+    @pytest.mark.parametrize(
+        "input_value,expected",
+        [
+            ("debug", "DEBUG"),
+            ("info", "INFO"),
+            ("Warning", "WARNING"),
+            ("eRrOr", "ERROR"),
+            ("critical", "CRITICAL"),
+        ],
+    )
+    def test_log_level_value_is_case_insensitive(
+        self, monkeypatch: pytest.MonkeyPatch, input_value: str, expected: str
+    ) -> None:
+        # The mode="before" validator uppercases the input so FORGE_LOG__LEVEL=debug
+        # (matches Python's logging convention) doesn't trip the Literal check.
+        monkeypatch.setenv("FORGE_LOG__LEVEL", input_value)
+        assert LogSettings().level == expected  # type: ignore[call-arg]
 
 
 class TestExtraForbid:
