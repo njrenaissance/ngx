@@ -16,6 +16,13 @@ locals {
     # reads this verbatim as forge.settings.celery.BROKER_URL. The path /0
     # selects Redis logical database 0 — Celery's default.
     { name = "FORGE_CELERY__BROKER_URL", value = "rediss://${var.cache_endpoint}:${var.cache_port}/0" },
+    # Managed-resources backend env (issue #51 / E.3). The api never touches
+    # these (it doesn't materialize workspaces) but pydantic-settings requires
+    # both fields to be set at boot, so we share them — keeps env parity
+    # between api and worker tasks. The worker reads them when rendering
+    # backend.tf for per-request workspaces.
+    { name = "FORGE_TERRAFORM__MANAGED_RESOURCES_BUCKET", value = var.managed_resources_bucket },
+    { name = "FORGE_TERRAFORM__MANAGED_RESOURCES_REGION", value = var.managed_resources_region },
   ]
 
   shared_secrets = [
@@ -252,12 +259,64 @@ resource "aws_iam_role" "ecs_worker_task" {
     }]
   })
 
-  # Currently no attached policies. Issue #51 (E.3) will attach a scoped
-  # s3:CreateBucket / GetBucketLocation / DeleteBucket policy here for
-  # forge-managed-* buckets — that's why this role exists separately from
-  # the api task role rather than being shared.
-
   tags = { Name = "${var.name_prefix}-ecs-worker-task-role" }
+}
+
+# ─── Worker IAM: managed-resources S3 + KMS (issue #51 / E.3) ─────────────────
+#
+# The worker materializes per-request Terraform workspaces and writes their
+# state to the managed-resources bucket via `backend "s3"`. That requires:
+#   - S3 object-level access on the bucket (state read + write + delete).
+#   - S3 ListBucket on the bucket itself (terraform init queries object
+#     existence via HeadObject, which falls back to ListBucket).
+#   - KMS Encrypt/Decrypt/GenerateDataKey on the bucket's CMK (SSE-KMS means
+#     every read decrypts a data key, every write encrypts a fresh one).
+#
+# Deliberately NOT granted: any action on the platform `forge-tfstate-*`
+# bucket. The split exists so a compromised worker can corrupt its own
+# request's state (recoverable per-row) but never the foundation backend
+# that every other stack depends on.
+resource "aws_iam_role_policy" "ecs_worker_managed_resources" {
+  name = "${var.name_prefix}-ecs-worker-managed-resources"
+  role = aws_iam_role.ecs_worker_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ManagedResourcesBucketObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+        ]
+        Resource = "arn:aws:s3:::${var.managed_resources_bucket}/*"
+      },
+      {
+        Sid    = "ManagedResourcesBucketList"
+        Effect = "Allow"
+        # ListBucket is bucket-scoped, not object-scoped. terraform init's
+        # backend probe issues a HeadObject that the s3 API falls back to
+        # ListBucket for when the object doesn't yet exist — missing this
+        # permission shows up as a confusing "AccessDenied" on the first
+        # apply, not on subsequent ones.
+        Action   = ["s3:ListBucket", "s3:GetBucketLocation"]
+        Resource = "arn:aws:s3:::${var.managed_resources_bucket}"
+      },
+      {
+        Sid    = "ManagedResourcesKMS"
+        Effect = "Allow"
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:GenerateDataKey",
+          "kms:DescribeKey",
+        ]
+        Resource = var.managed_resources_kms_key_arn
+      },
+    ]
+  })
 }
 
 resource "aws_ecs_task_definition" "worker" {

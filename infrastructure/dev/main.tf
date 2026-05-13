@@ -100,6 +100,13 @@ module "ecs_service" {
   # api and worker task definitions as FORGE_CELERY__BROKER_URL (rediss://).
   cache_endpoint = module.cache.primary_endpoint_address
   cache_port     = module.cache.primary_port
+
+  # Managed-resources backend (issue #51 / E.3). The bootstrap stack creates
+  # the bucket + CMK; this stack just plumbs the names/ARN into the worker's
+  # task env (via shared_environment) and IAM policy.
+  managed_resources_bucket      = var.managed_resources_bucket
+  managed_resources_region      = var.managed_resources_region
+  managed_resources_kms_key_arn = var.managed_resources_kms_key_arn
 }
 
 # CloudWatch alarms + SNS email notifications for all four observable layers:

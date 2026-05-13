@@ -8,6 +8,16 @@ on:
       - "docs/**"
       - "**.md"
       - ".claude/**"
+  # Run on every push to main so the README badge has a recent main-branch
+  # result to display. Without this trigger the badge stays empty/stale
+  # because GitHub badges only surface runs on the named branch, and the
+  # PR runs don't count.
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - ".claude/**"
 
 permissions:
   contents: read

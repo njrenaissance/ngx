@@ -147,6 +147,14 @@ jobs:
         id: tfplan
         env:
           TF_VAR_app_image: ${{ steps.image.outputs.app_image }}
+          # Bootstrap outputs flow in via repo variables (Repo Settings →
+          # Secrets and variables → Actions → Variables). Set them once from
+          # `terraform -chdir=infrastructure/bootstrap output` after the
+          # bootstrap stack is applied; CI cannot derive them from the
+          # bootstrap state by design (bootstrap state stays local).
+          TF_VAR_managed_resources_bucket: ${{ vars.MANAGED_RESOURCES_BUCKET }}
+          TF_VAR_managed_resources_region: ${{ vars.MANAGED_RESOURCES_REGION }}
+          TF_VAR_managed_resources_kms_key_arn: ${{ vars.MANAGED_RESOURCES_KMS_KEY_ARN }}
         run: |
           set -o pipefail
           terraform plan -input=false -no-color -out=tfplan | tee plan.txt
@@ -221,6 +229,12 @@ jobs:
     environment: production
     env:
       TF_VAR_app_image: ${{ needs.plan.outputs.app_image }}
+      # Same repo-variable mapping as the plan job — required because the
+      # apply job re-renders the plan and validates required variables
+      # before consuming the saved tfplan artifact.
+      TF_VAR_managed_resources_bucket: ${{ vars.MANAGED_RESOURCES_BUCKET }}
+      TF_VAR_managed_resources_region: ${{ vars.MANAGED_RESOURCES_REGION }}
+      TF_VAR_managed_resources_kms_key_arn: ${{ vars.MANAGED_RESOURCES_KMS_KEY_ARN }}
 
     steps:
       - name: Checkout

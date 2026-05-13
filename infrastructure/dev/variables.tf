@@ -49,3 +49,28 @@ variable "production_safety" {
   type        = bool
   default     = false
 }
+
+# ─── Managed-resources backend (issue #51 / E.3) ──────────────────────────────
+#
+# These three outputs come from the bootstrap stack (see
+# infrastructure/bootstrap/main.tf — managed_resources_bucket_name,
+# managed_resources_bucket_region, managed_resources_kms_key_arn). We pass
+# them in via tfvars rather than a terraform_remote_state data source so
+# the dev stack stays decoupled from the bootstrap stack's local state
+# layout. CI populates these from the bootstrap outputs read by the
+# operator at apply time.
+
+variable "managed_resources_bucket" {
+  description = "Name of the S3 bucket the provisioning worker writes per-resource Terraform state to. Output by infrastructure/bootstrap as managed_resources_bucket_name."
+  type        = string
+}
+
+variable "managed_resources_region" {
+  description = "Region the managed-resources bucket lives in. Output by infrastructure/bootstrap as managed_resources_bucket_region."
+  type        = string
+}
+
+variable "managed_resources_kms_key_arn" {
+  description = "ARN of the CMK encrypting the managed-resources bucket. Output by infrastructure/bootstrap as managed_resources_kms_key_arn."
+  type        = string
+}

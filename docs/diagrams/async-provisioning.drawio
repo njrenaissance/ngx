@@ -1,0 +1,194 @@
+<mxfile host="65bd71144e">
+    <diagram name="Async Provisioning Lifecycle" id="async-provisioning">
+        <mxGraphModel dx="1200" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="Async Provisioning — POST /v1/resources → terraform apply (E.3)" style="text;html=1;fontSize=14;fontStyle=1;align=center;" vertex="1" parent="1">
+                    <mxGeometry x="200" y="10" width="700" height="30" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="actor-client" value="Client" style="shape=umlActor;verticalLabelPosition=bottom;labelBackgroundColor=#ffffff;verticalAlign=top;" vertex="1" parent="1">
+                    <mxGeometry x="50" y="60" width="40" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane-client" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 4;strokeColor=#666;" edge="1" parent="1" source="actor-client" target="actor-client-end">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="actor-client-end" value="" style="ellipse;html=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+                    <mxGeometry x="65" y="780" width="10" height="10" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="lane-api" value="FastAPI &#xa;(forge.api.resources)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+                    <mxGeometry x="180" y="60" width="160" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane-api-line" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 4;strokeColor=#666;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="260" y="100" as="sourcePoint"/>
+                        <mxPoint x="260" y="780" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="lane-db" value="Postgres&#xa;(SyncSession)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+                    <mxGeometry x="380" y="60" width="140" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane-db-line" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 4;strokeColor=#666;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="450" y="100" as="sourcePoint"/>
+                        <mxPoint x="450" y="780" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="lane-broker" value="Redis broker&#xa;(Celery)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" vertex="1" parent="1">
+                    <mxGeometry x="560" y="60" width="120" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane-broker-line" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 4;strokeColor=#666;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="620" y="100" as="sourcePoint"/>
+                        <mxPoint x="620" y="780" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="lane-worker" value="Worker&#xa;(provision_resource +&#xa;TerraformRunner)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="1">
+                    <mxGeometry x="720" y="60" width="160" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane-worker-line" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 4;strokeColor=#666;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="800" y="110" as="sourcePoint"/>
+                        <mxPoint x="800" y="780" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="lane-s3" value="S3 managed-resources&#xa;bucket (state)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="1">
+                    <mxGeometry x="920" y="60" width="160" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane-s3-line" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 4;strokeColor=#666;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1000" y="100" as="sourcePoint"/>
+                        <mxPoint x="1000" y="780" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-1" value="POST /v1/resources" style="endArrow=block;html=1;strokeColor=#1e4d78;strokeWidth=2;fontStyle=1;fontSize=11;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="90" y="140" as="sourcePoint"/>
+                        <mxPoint x="260" y="140" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-2" value="INSERT resource_request (status=pending)" style="endArrow=block;html=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="260" y="180" as="sourcePoint"/>
+                        <mxPoint x="450" y="180" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-3" value="send_task(provision_resource, rid)" style="endArrow=block;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="260" y="220" as="sourcePoint"/>
+                        <mxPoint x="620" y="220" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-4" value="202 Accepted {resource_id, status: pending, poll_url}" style="endArrow=block;html=1;strokeColor=#1e4d78;strokeWidth=2;dashed=1;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="260" y="260" as="sourcePoint"/>
+                        <mxPoint x="90" y="260" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-5" value="consume task" style="endArrow=block;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="620" y="300" as="sourcePoint"/>
+                        <mxPoint x="800" y="300" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-6" value="UPDATE rr.status = provisioning" style="endArrow=block;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="800" y="340" as="sourcePoint"/>
+                        <mxPoint x="450" y="340" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-7" value="materialize_workspace → tmpdir + DEPLOYMENT(pending)" style="endArrow=block;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="800" y="380" as="sourcePoint"/>
+                        <mxPoint x="450" y="380" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-8" value="INSERT apply_job(status=queued→running)" style="endArrow=block;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="800" y="420" as="sourcePoint"/>
+                        <mxPoint x="450" y="420" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-9" value="terraform init (backend.tf → S3)" style="endArrow=block;html=1;strokeColor=#d6b656;strokeWidth=2;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="800" y="460" as="sourcePoint"/>
+                        <mxPoint x="1000" y="460" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-10" value="terraform plan -out=tfplan  (rule 4: saved plan required)" style="endArrow=block;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;fontStyle=1;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="800" y="495" as="sourcePoint"/>
+                        <mxPoint x="800" y="495" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="870" y="495"/>
+                            <mxPoint x="870" y="515"/>
+                            <mxPoint x="800" y="515"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-11" value="UPDATE deployment.status = planned" style="endArrow=block;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="800" y="540" as="sourcePoint"/>
+                        <mxPoint x="450" y="540" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-12" value="terraform apply tfplan  (writes state to S3)" style="endArrow=block;html=1;strokeColor=#d6b656;strokeWidth=2;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="800" y="580" as="sourcePoint"/>
+                        <mxPoint x="1000" y="580" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-13" value="terraform output -json → outputs dict" style="endArrow=block;html=1;strokeColor=#9673a6;strokeWidth=2;dashed=1;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1000" y="615" as="sourcePoint"/>
+                        <mxPoint x="800" y="615" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-14" value="UPDATE deployment.status=applied + outputs_encrypted + apply_job.status=succeeded + rr.status=provisioned" style="endArrow=block;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="800" y="660" as="sourcePoint"/>
+                        <mxPoint x="450" y="660" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-15" value="GET /v1/resources/{id}/status (poll)" style="endArrow=block;html=1;strokeColor=#1e4d78;strokeWidth=2;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="90" y="710" as="sourcePoint"/>
+                        <mxPoint x="260" y="710" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="msg-16" value="200 {status: provisioned}" style="endArrow=block;html=1;strokeColor=#1e4d78;strokeWidth=2;dashed=1;fontSize=10;" edge="1" parent="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="260" y="740" as="sourcePoint"/>
+                        <mxPoint x="90" y="740" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+
+                <mxCell id="note-failure" value="Failure path: TerraformExecutionError → cumulative_log()+sanitized stderr → APPLY_JOB.failed + DEPLOYMENT.failed (last_error) + RR.failed.  Task returns &quot;failed&quot; — no re-raise.  SPEC App. B rule 1 sanitizer scrubs ARNs / 12-digit account IDs / region codes from log_sanitized + last_error." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="180" y="770" width="800" height="50" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

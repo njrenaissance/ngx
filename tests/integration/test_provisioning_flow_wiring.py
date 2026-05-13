@@ -1,15 +1,17 @@
-"""E.2 wiring proof: POST -> Celery enqueue -> worker -> workspace materialization
--> status `provisioned`.
+"""E.3 plan-then-apply integration: POST -> Celery enqueue -> worker -> workspace
+materialization -> terraform init/plan/apply (against fake binary) -> status
+`provisioned` with DEPLOYMENT.status=applied, APPLY_JOB.status=succeeded,
+outputs_encrypted populated, and log_sanitized clean of cloud coordinates.
 
-Requires the compose stack to include `redis` and `worker` services and the
-host packages/ directory mounted into both api and worker (see
-docker-compose.yml). The worker materializes a per-request workspace
-on disk inside the worker container and persists DEPLOYMENT +
-DEPLOYMENT_AZ rows; no `terraform` invocation runs yet (arrives in E.3).
+The compose worker uses the deterministic fake terraform script (see
+docker-compose.yml — FORGE_TERRAFORM__BINARY defaults to it). Real AWS
+runs are operator-driven and documented in
+docs/runbooks/real-aws-provisioning.md, not exercised here.
 
 This test catches a broken broker URL, a missing worker service, a missing
-packages mount, a materializer regression, or schema drift between the
-seeded resource type and the on-disk package.
+packages mount, a materializer regression, schema drift between the seeded
+resource type and the on-disk package, a TerraformRunner regression, or
+sanitizer regression that lets ARNs leak into the audit trail.
 """
 
 import time
@@ -63,15 +65,19 @@ def test_worker_drives_status_to_provisioned(forge_url: str) -> None:
     final_status = _poll_until_provisioned(forge_url, resource_id)
     assert final_status == "provisioned"
 
-    # E.2 materialization assertions: a single DEPLOYMENT row was written
-    # with a SPEC §8.2-shaped state key, and one DEPLOYMENT_AZ row per
-    # min_azs_per_region was written with the expected primary/secondary
-    # split. The integration suite connects to the compose Postgres on
+    # E.3 plan-then-apply assertions: DEPLOYMENT advanced through the full
+    # FSM, an APPLY_JOB row captured the run, and outputs were persisted.
+    # The integration suite connects to the compose Postgres on
     # localhost:5432 via the same DSN the test process already uses
     # (seeded_db relies on the default FORGE_DATABASE__HOST=localhost).
     from forge.db import SyncSession
     from forge.models.catalog import TierPolicy
-    from forge.models.provisioning import Deployment, DeploymentAz, ResourceRequest
+    from forge.models.provisioning import (
+        ApplyJob,
+        Deployment,
+        DeploymentAz,
+        ResourceRequest,
+    )
 
     with SyncSession() as session:
         rr = session.query(ResourceRequest).filter(ResourceRequest.id == uuid.UUID(resource_id)).first()
@@ -81,9 +87,29 @@ def test_worker_drives_status_to_provisioned(forge_url: str) -> None:
         deployment = deployments[0]
         expected_state_key = f"dev/{rr.team_id}/standalone/{rr.id}/ngx-region-1a/terraform.tfstate"
         assert deployment.tf_state_key == expected_state_key
-        # E.2: DEPLOYMENT.status is "pending" — workspace is on disk but no
-        # terraform has run. E.3 will drive it to "applying" -> "provisioned".
-        assert deployment.status == "pending"
+        # E.3: terminal Deployment status is "applied"; outputs captured.
+        assert deployment.status == "applied", (
+            f"deployment.status={deployment.status}, last_error={deployment.last_error}"
+        )
+        assert deployment.outputs_encrypted is not None
+        assert deployment.provisioned_at is not None
+
+        # APPLY_JOB lifecycle audit trail.
+        jobs = session.query(ApplyJob).filter(ApplyJob.deployment_id == deployment.id).all()
+        assert len(jobs) == 1, "exactly one APPLY_JOB row should be written on a clean run"
+        job = jobs[0]
+        assert job.status == "succeeded"
+        assert job.operation == "apply"
+        assert job.attempt_count == 1
+        assert job.started_at is not None
+        assert job.completed_at is not None
+        assert job.log_sanitized is not None
+        # SPEC Appendix B rule 1 — sanitized log must contain none of the
+        # cloud coordinates the fake terraform deliberately emits in stdout.
+        assert "arn:aws:" not in job.log_sanitized
+        assert "123456789012" not in job.log_sanitized
+        # The fake's plan stdout includes "us-east-1" — sanitizer must scrub it.
+        assert "us-east-1" not in job.log_sanitized
 
         tier = session.query(TierPolicy).filter(TierPolicy.id == rr.tier_policy_id).first()
         assert tier is not None

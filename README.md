@@ -131,14 +131,31 @@ The `.env` file is gitignored — never commit it.
 
 #### Database migrations and seed data
 
-Bring up Postgres first, then run Alembic and the seed script. Both commands
-read the database URL from `.env`:
+Bring up Postgres first, then run Alembic and the seed script.
+
+`.env` targets the compose network (`FORGE_DATABASE__HOST=postgres`,
+`FORGE_CELERY__BROKER_URL=redis://redis:6379/0`). Commands that run on
+your host machine — alembic, the seed script, ad-hoc Python — can't
+resolve those compose-internal DNS names, so they need localhost
+overrides. Keep them in a gitignored `.env.local` next to `.env`:
+
+```sh
+# .env.local — host overrides for compose-internal hostnames
+FORGE_DATABASE__HOST=localhost
+FORGE_CELERY__BROKER_URL=redis://localhost:6379/0
+```
+
+Then run alembic and the seed against the running Postgres:
 
 ```sh
 docker compose --env-file .env up postgres -d
-uv run --env-file .env alembic upgrade head
-uv run --env-file .env python db/seed.py
+uv run --env-file .env.local alembic upgrade head
+uv run --env-file .env.local python db/seed.py
 ```
+
+`uv run --env-file` exports the file's vars before launching, and env vars
+override `.env` per pydantic-settings priority — so `.env.local` only
+needs the host-vs-container deltas, not a full copy.
 
 **Customising the seed data** — the seed script reads `db/seed.json` if it
 exists, otherwise it falls back to `db/seed.json.example` (the committed
@@ -148,11 +165,85 @@ users without touching the committed example:
 ```sh
 cp db/seed.json.example db/seed.json
 # Edit db/seed.json — change api_key values, add entries, etc.
-uv run python db/seed.py
+uv run --env-file .env.local python db/seed.py
 ```
 
-`db/seed.json` is gitignored. Never commit it — use `seed.json.example`
-for defaults that the whole team can share.
+`db/seed.json` and `.env.local` are both gitignored. Never commit them —
+use `seed.json.example` for defaults that the whole team can share.
+
+#### Smoke and load testing
+
+We exercise the `POST /v1/resources` path against a running local stack
+with two small ad-hoc scripts (kept out of version control; recipes
+below). Both read the API key from `FORGE_API_KEY` — set it to a
+plaintext key whose bcrypt hash is in the seeded `app_user` table.
+
+**Smoke test** — single POST, optional `/status` poll until terminal.
+Stdlib-only (`urllib`), so it runs without `uv`. Recipe:
+
+```python
+# scripts/post_resource.py — argparse over urllib.request.
+# POST /v1/resources with managed_database defaults; --poll loops the
+# /status endpoint until the resource reaches a terminal state
+# (provisioned / failed / cancelled).
+```
+
+Usage:
+
+```sh
+export FORGE_API_KEY=<your-key>
+python scripts/post_resource.py                           # one-shot
+python scripts/post_resource.py --name smoke-1 --poll     # POST + watch status
+```
+
+Defaults match `db/seed.json.example`: `resource_type=managed_database`,
+`tier=dev`, `logical_region=ngx-region-1a`, `engine=postgres`,
+`size=small`.
+
+**Load test** — N concurrent POSTs via `httpx.AsyncClient`, semaphore-
+bounded so we don't blow past the connection pool. Reports a status-code
+histogram and latency p50/p95/p99. Uses the project's httpx dep, so run
+under `uv`:
+
+```python
+# scripts/load_post_resource.py — asyncio.gather of N POSTs against
+# /v1/resources, each with a unique resource name. asyncio.Semaphore
+# caps in-flight requests; httpx.Limits matches it on the client side.
+```
+
+Usage:
+
+```sh
+uv run python scripts/load_post_resource.py                          # 100 reqs, 20 concurrent
+uv run python scripts/load_post_resource.py --count 500 --concurrency 50
+```
+
+What to expect on a healthy local stack with the **fake terraform binary**
+(compose's default, `tests/_fake_terraform/fake_terraform.py`):
+
+- All 202s from the API — the POST returns as soon as the task is enqueued.
+- p50 latency dominated by bcrypt API-key verification (a few hundred ms;
+  see the scaling-cliff comment in `src/forge/api/auth.py`).
+- Worker concurrency is 2 with `worker_prefetch_multiplier=1` (see
+  `src/forge/workers/__init__.py`), so 100 enqueues drain through the
+  worker in the background while the API is already done. Redis broker
+  depth stays near zero — the bottleneck is the terraform subprocess,
+  not the queue.
+
+If `.env` has `FORGE_TERRAFORM__BINARY=terraform` set, the load test will
+still report all 202s (the API only enqueues), but `docker compose logs
+worker` will show N back-to-back terraform-init failures because the
+worker has no AWS credentials. That separation between the API path and
+the provisioning path is intentional — async decoupling means a broken
+provisioner doesn't make the API look broken.
+
+Inspect queue depth and worker state directly:
+
+```sh
+docker compose exec redis redis-cli LLEN provisioning
+docker compose exec worker celery -A forge.workers inspect active
+docker compose exec worker celery -A forge.workers inspect reserved
+```
 
 ### Run the integration tests
 
@@ -254,6 +345,18 @@ All `/v1/*` routes require an `X-API-Key` header.
 | `GET` | `/v1/catalog/resource-types` | List active resource types (latest version only) |
 | `GET` | `/v1/catalog/resource-types/{name}` | Resource type detail; accepts optional `?tier=` to merge tier schema overrides |
 | `GET` | `/v1/me` | Authenticated caller identity and team membership |
+
+---
+
+## Real-AWS provisioning (manual, opt-in)
+
+The integration test suite uses a deterministic fake terraform binary
+to exercise the plan-then-apply lifecycle without an AWS account. To
+drive a real `terraform apply` against AWS, follow the
+[real-AWS provisioning runbook](docs/runbooks/real-aws-provisioning.md).
+It covers the bootstrap prerequisites, IAM admin steps, env-var
+overrides for the worker, and manual cleanup of orphaned resources
+when an apply fails partway. **Not exercised by CI.**
 
 ---
 

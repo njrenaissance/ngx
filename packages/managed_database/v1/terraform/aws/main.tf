@@ -54,7 +54,12 @@ data "aws_security_group" "app" {
 }
 
 data "aws_kms_key" "managed_resources" {
-  key_id = "alias/forge-${var.environment}-managed-resources"
+  # Account-level alias created by infrastructure/bootstrap. Single shared
+  # CMK across environments — the bootstrap stack deliberately doesn't know
+  # about per-env scope. If we ever need env-scoped keys, the bootstrap
+  # stack grows a key-per-env loop and this lookup gains the `${var.environment}`
+  # back into the alias string.
+  key_id = "alias/forge-shared-managed-resources"
 }
 
 module "database" {

@@ -853,3 +853,73 @@ Celery/app config — as plain `environment[]` entries.
   Cheaper per-call pricing, but the Aurora master secret is already in
   Secrets Manager (provisioned by the database module). Using two
   credential stores for one task adds operational complexity.
+
+---
+
+## ADR-017 — S3-native locking for the managed-resources backend (no DynamoDB lock table)
+
+**Date:** 2026-05-12
+**Status:** Accepted
+**Originating context:** `infrastructure/bootstrap/main.tf` + `src/forge/workers/workspace.py` (issue #51 / E.3)
+
+### Context
+
+The provisioning worker writes per-request Terraform state to a separate
+S3 bucket (`forge-managed-resources-<account>`) — distinct from the
+platform `forge-tfstate-<account>` bucket the rest of the repo uses.
+The platform bucket has a DynamoDB lock table (`forge-tfstate-lock`)
+because two operators running `terraform apply` concurrently against
+the same stack would race; the lock serializes them.
+
+Terraform 1.10+ supports S3-native state locking via the `use_lockfile`
+backend argument: a sibling `<key>.tflock` object in the same bucket
+acts as the lock. No second AWS service required.
+
+### Decision
+
+The managed-resources backend uses `use_lockfile = true` (configured
+per-workspace by the worker in the rendered `backend.tf`). No DynamoDB
+lock table is created for this bucket.
+
+### Why
+
+- **Cardinality of writers per state file is one.** Each per-request
+  workspace has a unique tf_state_key (`{env}/{team_id}/standalone/
+  {rr_id}/{logical_region}/terraform.tfstate`) and is touched by exactly
+  one Celery task at a time. The contention DynamoDB solves — multiple
+  operators racing against the same state — doesn't exist here. The
+  one race that *can* happen (acks_late redelivery resuming a crashed
+  task while a replacement task picks the same row) is exactly what
+  lockfile semantics handle: the second worker waits, then proceeds
+  with init/plan/apply against the now-current state.
+- **Operational simplicity.** One AWS resource per backend (the bucket)
+  instead of two. No PITR-billed DynamoDB table sitting idle 99% of
+  the time. The lock object lives in the same bucket lifecycle and is
+  bounded by the same noncurrent-version expiry.
+- **Cost.** Negligible per-workspace storage + a single PUT/DELETE per
+  apply for the lock object. DynamoDB on-demand pricing has a higher
+  per-request floor than S3 even at low volume.
+
+### Consequences
+
+- Requires Terraform 1.10.0+ everywhere — pinned in the Dockerfile
+  (`TERRAFORM_VERSION=1.10.0`) and enforced by checksum at build time.
+  An older client trying to use this backend would silently skip
+  locking; the version pin makes that impossible.
+- Different code path from the platform backend (which still uses
+  DynamoDB). A reader has to know which backend a given stack uses —
+  flagged in [infrastructure/bootstrap/README.md](../infrastructure/bootstrap/README.md)
+  and the per-workspace `backend.tf` template comment.
+
+### Alternatives considered
+
+- **Reuse the platform DynamoDB lock table.** Would put both backends
+  on identical tooling but requires the worker IAM role to have
+  DynamoDB write permissions — wider blast radius for a compromised
+  worker than the S3-only grant we settled on. Worth nothing because
+  the contention pattern doesn't justify DynamoDB at all.
+- **Per-workspace DynamoDB tables.** Astronomical resource sprawl —
+  one table per request — for zero contention benefit.
+- **No locking at all (terraform's pre-1.10 default of `force_unlock`).**
+  Doesn't survive the acks_late redelivery race; one of the racing
+  tasks will corrupt state. Non-starter even for POC.

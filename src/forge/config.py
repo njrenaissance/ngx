@@ -59,6 +59,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "MANAGED_RESOURCES_BUCKET": "",
         "MANAGED_RESOURCES_REGION": "",
         "PACKAGES_DIR": "./packages",
+        # Defaults to the `terraform` binary on PATH. Tests override via
+        # FORGE_TERRAFORM__BINARY to point at a deterministic fake script —
+        # accepts a shell-style command (e.g. "python /path/to/fake.py") which
+        # TerraformRunner splits with shlex before invoking subprocess.
+        "BINARY": "terraform",
     },
     "log": {
         # DEBUG default surfaces startup, db init, task lifecycle, and AZ
@@ -214,6 +219,7 @@ class TerraformSettings(BaseSettings):
     MANAGED_RESOURCES_BUCKET: str
     MANAGED_RESOURCES_REGION: str
     PACKAGES_DIR: str
+    BINARY: str
 
     settings_customise_sources = _build_customise_sources("terraform")
 

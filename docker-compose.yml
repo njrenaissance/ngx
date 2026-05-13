@@ -113,9 +113,18 @@ services:
       FORGE_TERRAFORM__MANAGED_RESOURCES_BUCKET: ${FORGE_TERRAFORM__MANAGED_RESOURCES_BUCKET:-forge-local-managed-resources}
       FORGE_TERRAFORM__MANAGED_RESOURCES_REGION: ${FORGE_TERRAFORM__MANAGED_RESOURCES_REGION:-us-east-1}
       FORGE_TERRAFORM__PACKAGES_DIR: /app/packages
+      # Default to the deterministic fake terraform so `docker compose up`
+      # works without AWS credentials. The integration test suite relies on
+      # this default; a developer who wants to drive a real apply against
+      # an AWS account overrides via FORGE_TERRAFORM__BINARY=terraform in
+      # a top-level .env (and supplies AWS_* credentials separately).
+      FORGE_TERRAFORM__BINARY: ${FORGE_TERRAFORM__BINARY:-python /app/tests/_fake_terraform/fake_terraform.py}
     volumes:
       - ./src:/app/src:ro
       - ./packages:/app/packages:ro
+      # The fake terraform script lives under tests/ — mount read-only into
+      # the worker so the FORGE_TERRAFORM__BINARY default above resolves.
+      - ./tests/_fake_terraform:/app/tests/_fake_terraform:ro
     depends_on:
       postgres:
         condition: service_healthy
