@@ -22,8 +22,8 @@ class TestCeleryAppConfig:
         from forge.config import settings
         from forge.workers import celery_app
 
-        assert celery_app.conf.broker_url == settings.celery.BROKER_URL
-        assert celery_app.conf.task_default_queue == settings.celery.TASK_DEFAULT_QUEUE
+        assert celery_app.conf.broker_url == settings.celery.broker_url
+        assert celery_app.conf.task_default_queue == settings.celery.task_default_queue
 
     def test_result_backend_derived_from_database_dsn(self) -> None:
         """Result backend reuses Aurora via the db+ prefix on the sync DSN."""
@@ -36,8 +36,8 @@ class TestCeleryAppConfig:
         from forge.config import settings
         from forge.workers import celery_app
 
-        assert celery_app.conf.task_time_limit == settings.celery.TASK_TIME_LIMIT
-        assert celery_app.conf.task_soft_time_limit == settings.celery.TASK_SOFT_TIME_LIMIT
+        assert celery_app.conf.task_time_limit == settings.celery.task_time_limit
+        assert celery_app.conf.task_soft_time_limit == settings.celery.task_soft_time_limit
 
 
 class TestTaskRegistry:

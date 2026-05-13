@@ -109,14 +109,14 @@ def workspace_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture
 def patched_settings(monkeypatch: pytest.MonkeyPatch, packages_dir: Path) -> None:
-    """Override settings.terraform.* and ENVIRONMENT in the workspace module's
-    namespace. The materializer reads `settings.ENVIRONMENT` and
+    """Override settings.terraform.* and environment in the workspace module's
+    namespace. The materializer reads `settings.environment` and
     `settings.terraform.*` directly, so we patch the module-bound `settings`."""
     fake = MagicMock()
-    fake.ENVIRONMENT = "dev"
-    fake.terraform.MANAGED_RESOURCES_BUCKET = "test-bucket"
-    fake.terraform.MANAGED_RESOURCES_REGION = "us-east-1"
-    fake.terraform.PACKAGES_DIR = str(packages_dir)
+    fake.environment = "dev"
+    fake.terraform.managed_resources_bucket = "test-bucket"
+    fake.terraform.managed_resources_region = "us-east-1"
+    fake.terraform.packages_dir = str(packages_dir)
     monkeypatch.setattr(workspace_module, "settings", fake)
 
 
@@ -346,14 +346,14 @@ class TestIdempotentReentry:
 @pytest.mark.usefixtures("workspace_root", "patched_settings")
 class TestMissingPackageDir:
     def test_missing_terraform_dir_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Override PACKAGES_DIR to a location that has no managed_database/v1 tree.
+        # Override packages_dir to a location that has no managed_database/v1 tree.
         empty = tmp_path / "empty-packages"
         empty.mkdir()
         fake = MagicMock()
-        fake.ENVIRONMENT = "dev"
-        fake.terraform.MANAGED_RESOURCES_BUCKET = "test-bucket"
-        fake.terraform.MANAGED_RESOURCES_REGION = "us-east-1"
-        fake.terraform.PACKAGES_DIR = str(empty)
+        fake.environment = "dev"
+        fake.terraform.managed_resources_bucket = "test-bucket"
+        fake.terraform.managed_resources_region = "us-east-1"
+        fake.terraform.packages_dir = str(empty)
         monkeypatch.setattr(workspace_module, "settings", fake)
 
         rt = _ResourceTypeStub()

@@ -12,9 +12,9 @@ logger = get_logger(__name__)
 sync_engine = create_engine(
     settings.database.sync_url,
     pool_pre_ping=True,
-    pool_timeout=settings.database.POOL_TIMEOUT,
-    pool_recycle=settings.database.POOL_RECYCLE,
-    connect_args={"connect_timeout": settings.database.CONNECT_TIMEOUT},
+    pool_timeout=settings.database.pool_timeout,
+    pool_recycle=settings.database.pool_recycle,
+    connect_args={"connect_timeout": settings.database.connect_timeout},
 )
 
 SyncSession: sessionmaker[Session] = sessionmaker(bind=sync_engine, expire_on_commit=False)
@@ -22,13 +22,13 @@ SyncSession: sessionmaker[Session] = sessionmaker(bind=sync_engine, expire_on_co
 logger.debug(
     "database engine initialised",
     extra={
-        "db_host": settings.database.HOST,
-        "db_port": settings.database.PORT,
-        "db_name": settings.database.NAME,
-        "db_schema": settings.database.SCHEMA,
-        "ssl_mode": settings.database.SSL_MODE,
-        "pool_timeout": settings.database.POOL_TIMEOUT,
-        "pool_recycle": settings.database.POOL_RECYCLE,
+        "db_host": settings.database.host,
+        "db_port": settings.database.port,
+        "db_name": settings.database.name,
+        "db_schema": settings.database.schema,
+        "ssl_mode": settings.database.ssl_mode,
+        "pool_timeout": settings.database.pool_timeout,
+        "pool_recycle": settings.database.pool_recycle,
     },
 )
 
@@ -55,6 +55,6 @@ def readiness_check() -> tuple[bool, str]:
         # bare Exception.
         logger.warning(
             "database readiness check failed",
-            extra={"host": settings.database.HOST, "port": settings.database.PORT, "error": str(e)},
+            extra={"host": settings.database.host, "port": settings.database.port, "error": str(e)},
         )
         return (False, str(e))

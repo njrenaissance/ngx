@@ -82,8 +82,10 @@ uv run pytest -m unit -v
 uv run python -m forge
 ```
 
-By default Forge listens on `0.0.0.0:8000`. Override via environment
-variables (see [Configuration](#configuration) below).
+By default Forge listens on `127.0.0.1:8000` (loopback) — safe for a
+laptop. Override `FORGE_HOST` to bind publicly. The docker-compose stack
+and ECS task definition already set `FORGE_HOST=0.0.0.0` so containers
+bind to all interfaces. See [Configuration](#configuration) below.
 
 ```sh
 curl http://localhost:8000/livez
@@ -251,7 +253,7 @@ to respond, runs the suite, and tears the stack down on session exit.
 |---|---|---|
 | `FORGE_APP_NAME` | `Forge` | Service identity in `/livez` response |
 | `FORGE_ENVIRONMENT` | `dev` | Free-form environment label |
-| `FORGE_HOST` | `0.0.0.0` | Bind address |
+| `FORGE_HOST` | `127.0.0.1` | Bind address — loopback by default; docker-compose and the ECS task definition override to `0.0.0.0` |
 | `FORGE_PORT` | `8000` | Bind port (both host and container) |
 | `FORGE_RELOAD` | `false` | `true` enables uvicorn auto-reload (dev only) |
 | `FORGE_REQUEST_TIMEOUT` | `30` | Seconds before uvicorn cancels a slow handler — keep below ALB idle timeout (60 s) |

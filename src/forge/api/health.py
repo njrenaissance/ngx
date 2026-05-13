@@ -38,7 +38,7 @@ def livez() -> dict[str, str]:
     """
     return {
         "status": "ok",
-        "message": f"{settings.APP_NAME} version {__version__} is running",
+        "message": f"{settings.app_name} version {__version__} is running",
         "version": __version__,
     }
 
