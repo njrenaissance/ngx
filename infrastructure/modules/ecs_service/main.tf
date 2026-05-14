@@ -186,6 +186,20 @@ resource "aws_ecs_task_definition" "app" {
     # both empty meaning "current").
     secrets = local.shared_secrets
 
+    # Container-level liveness probe. ECS Fargate ignores the Dockerfile
+    # HEALTHCHECK directive, so the probe must live on the task definition
+    # itself. Without this block, a sick task is only detected when the ALB
+    # deregisters it (slow). startPeriod is generous enough to cover a cold
+    # Fargate launch (image pull + uvicorn boot); the compose equivalent uses
+    # 10s but runs against a warm Docker cache.
+    healthCheck = {
+      command     = ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/livez').read()\""]
+      interval    = 30
+      timeout     = 5
+      retries     = 3
+      startPeriod = 30
+    }
+
     logConfiguration = {
       logDriver = "awslogs"
       options = {

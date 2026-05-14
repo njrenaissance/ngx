@@ -170,11 +170,18 @@ jobs:
       - name: Comment plan on PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
+        # Pass GH-context values through env: instead of interpolating into the
+        # script body. Today both values are trusted, but reading them via
+        # process.env.* keeps the script injection-safe by default if a
+        # less-trusted value (PR title, branch name, etc.) is ever added.
+        env:
+          APP_IMAGE: ${{ steps.image.outputs.app_image }}
+          WORKING_DIRECTORY: ${{ env.WORKING_DIRECTORY }}
         with:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const planPath = path.join('${{ env.WORKING_DIRECTORY }}', 'plan.txt');
+            const planPath = path.join(process.env.WORKING_DIRECTORY, 'plan.txt');
             let plan = fs.readFileSync(planPath, 'utf8');
 
             // GitHub comments cap around 65k chars; truncate liberally to fit.
@@ -194,7 +201,7 @@ jobs:
               '',
               '</details>',
               '',
-              `*Plan generated against \`app_image=${{ steps.image.outputs.app_image }}\`. Apply is gated by the \`production\` environment on merge to main.*`,
+              `*Plan generated against \`app_image=${process.env.APP_IMAGE}\`. Apply is gated by the \`production\` environment on merge to main.*`,
             ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({

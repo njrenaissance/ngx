@@ -50,7 +50,9 @@ def forge_url(docker_ip: str, docker_services: pytest.FixtureRequest) -> str:
     port = docker_services.port_for("api", 8000)  # type: ignore[attr-defined]
     url = f"http://{docker_ip}:{port}"
     docker_services.wait_until_responsive(  # type: ignore[attr-defined]
-        timeout=60.0,
+        # 180s covers cold CI runs that rebuild the Dockerfile from scratch
+        # (no layer cache). A warm local run completes well inside the window.
+        timeout=180.0,
         pause=1.0,
         check=_is_responsive(url),
     )
