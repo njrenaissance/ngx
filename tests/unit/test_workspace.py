@@ -363,6 +363,37 @@ class TestManagedResourcesRoleArnInjection:
         tfvars = json.loads((dest / "terraform.tfvars.json").read_text())
         assert tfvars["managed_resources_role_arn"] == ""
 
+    def test_role_arn_lookup_selects_correct_entry_from_multi_arn_map(
+        self, monkeypatch: pytest.MonkeyPatch, packages_dir: Path
+    ) -> None:
+        # Forward-looking: once managed_cache (and others) land, the map will
+        # carry multiple entries simultaneously. The worker must pick the
+        # entry matching this request's resource_type.name and ignore the
+        # rest — no merging, no first-key-wins surprises.
+        db_arn = "arn:aws:iam::123456789012:role/forge-managed-database-role"
+        cache_arn = "arn:aws:iam::123456789012:role/forge-managed-cache-role"
+        other_arn = "arn:aws:iam::123456789012:role/forge-managed-queue-role"
+        self._patch_settings(
+            monkeypatch,
+            packages_dir,
+            {
+                "managed_database": db_arn,
+                "managed_cache": cache_arn,
+                "managed_queue": other_arn,
+            },
+        )
+
+        rt = _ResourceTypeStub(name="managed_database")
+        rr = _ResourceRequestStub(resource_type_id=rt.id)
+        session = _build_session(rt, _TierPolicyStub(1), _LogicalRegionStub(), [_AzStub(1)])
+
+        dest = materialize_workspace(session, rr)
+        tfvars = json.loads((dest / "terraform.tfvars.json").read_text())
+        assert tfvars["managed_resources_role_arn"] == db_arn
+        # Negative assertion: the worker is selecting, not merging.
+        assert cache_arn not in tfvars.values()
+        assert other_arn not in tfvars.values()
+
 
 @pytest.mark.usefixtures("workspace_root", "patched_settings")
 class TestVarmapMismatch:

@@ -1048,6 +1048,12 @@ part. STS is a cloud-only concern.
 - Worker task role keeps its narrow S3 + KMS posture; it gains exactly
   one new permission (`sts:AssumeRole` scoped to the per-package role
   ARNs). The api task role is unchanged.
+- Multi-environment rollouts (staging, prod) require the bootstrap stack
+  operator to add the new env's short-name to
+  `var.worker_task_role_environments` (default `["dev"]`) and re-apply
+  bootstrap before that env's per-env stack first assumes any
+  per-package role. Bootstrap is account-level, so this is a one-time
+  list extension per account, not per env.
 
 ### Alternatives considered
 

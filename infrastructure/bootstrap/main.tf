@@ -300,6 +300,14 @@ locals {
   # The bootstrap stack is account-level (no env concept), so we construct
   # one trust ARN per environment listed in var.worker_task_role_environments
   # — the role(s) need not exist yet (constructed-by-name principals).
+  #
+  # !!! CROSS-FILE INVARIANT !!! The string template below MUST stay in sync
+  # with infrastructure/modules/ecs_service/main.tf's `aws_iam_role.ecs_worker_task`
+  # `name` attribute (currently `${var.name_prefix}-ecs-worker-task-role` with
+  # name_prefix = "forge-<env>"). If the ECS module renames the worker role,
+  # this trust string becomes stale and sts:AssumeRole silently fails at
+  # first real request. There is no automated check — renaming requires
+  # updating both files in the same PR.
   worker_task_role_arns = [
     for env in var.worker_task_role_environments :
     "arn:aws:iam::${local.account_id}:role/forge-${env}-ecs-worker-task-role"
