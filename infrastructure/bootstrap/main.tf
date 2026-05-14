@@ -276,3 +276,165 @@ output "managed_resources_kms_key_alias" {
   description = "Alias name (e.g. alias/forge-shared-managed-resources) referenced by packages/*/v*/terraform/aws/main.tf via a data \"aws_kms_key\" lookup."
   value       = aws_kms_alias.managed_resources.name
 }
+
+# ─── Per-package managed-resources IAM identities (issue #86) ────────────────
+#
+# One IAM role per managed-resource package type. The worker (running with
+# the dev stack's `forge-ecs-worker-task-role`, which itself has only S3+KMS
+# on the managed-resources bucket and sts:AssumeRole on these per-package
+# roles) assumes the matching role per request before invoking
+# `terraform apply`. A compromised worker is bounded to one package type's
+# AWS API surface — see ADR-018.
+#
+# Trust principal is the worker task role expressed as a *constructed-by-name*
+# ARN, not a reference to the role resource itself. The role lives in the
+# dev stack (infrastructure/modules/ecs_service), but this bootstrap stack
+# runs first and can't pull a remote state. IAM does not validate principal
+# ARN existence at policy-create time, so the constructed string works
+# without a circular plan dependency. If the worker role is renamed, this
+# trust string must be updated in lockstep.
+
+locals {
+  # Worker task role names follow the per-env naming convention enforced by
+  # infrastructure/modules/ecs_service: `forge-<env>-ecs-worker-task-role`.
+  # The bootstrap stack is account-level (no env concept), so we construct
+  # one trust ARN per environment listed in var.worker_task_role_environments
+  # — the role(s) need not exist yet (constructed-by-name principals).
+  #
+  # !!! CROSS-FILE INVARIANT !!! The string template below MUST stay in sync
+  # with infrastructure/modules/ecs_service/main.tf's `aws_iam_role.ecs_worker_task`
+  # `name` attribute (currently `${var.name_prefix}-ecs-worker-task-role` with
+  # name_prefix = "forge-<env>"). If the ECS module renames the worker role,
+  # this trust string becomes stale and sts:AssumeRole silently fails at
+  # first real request. There is no automated check — renaming requires
+  # updating both files in the same PR.
+  worker_task_role_arns = [
+    for env in var.worker_task_role_environments :
+    "arn:aws:iam::${local.account_id}:role/forge-${env}-ecs-worker-task-role"
+  ]
+}
+
+# Scope of this issue: only the `managed_database` role. Other packages
+# (managed_cache, etc.) get their own role with their own per-API-action
+# policy when the package itself lands — keeps PR scope reviewable.
+
+resource "aws_iam_role" "managed_database" {
+  name = "forge-managed-database-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AllowWorkerTaskRoleToAssume"
+      Effect    = "Allow"
+      Principal = { AWS = local.worker_task_role_arns }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+
+  tags = local.managed_resources_tags
+}
+
+resource "aws_iam_role_policy" "managed_database" {
+  name = "forge-managed-database-policy"
+  role = aws_iam_role.managed_database.id
+
+  # Permissions narrowly scoped to what packages/managed_database/v1/terraform
+  # actually issues against AWS. Three groups:
+  #   1. RDS lifecycle — Resource = "*" because many rds:Describe* / tagging
+  #      APIs do not support ARN-level scoping. Lifecycle (Create/Modify/Delete)
+  #      is bounded operationally by ARN naming (forge-*) and by the fact
+  #      that this role is only ever assumed for managed_database workspaces.
+  #   2. KMS — scoped to the managed-resources CMK only.
+  #   3. EC2 / IAM:PassRole — narrow Describe* for terraform plan; PassRole
+  #      conditioned on the RDS enhanced-monitoring service.
+  #   4. SecretsManager — RDS master-secret lifecycle, scoped to forge-* names.
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "RdsLifecycle"
+        Effect = "Allow"
+        Action = [
+          "rds:CreateDBCluster",
+          "rds:CreateDBInstance",
+          "rds:CreateDBSubnetGroup",
+          "rds:CreateDBParameterGroup",
+          "rds:CreateDBClusterParameterGroup",
+          "rds:ModifyDBCluster",
+          "rds:ModifyDBInstance",
+          "rds:ModifyDBSubnetGroup",
+          "rds:DeleteDBCluster",
+          "rds:DeleteDBInstance",
+          "rds:DeleteDBSubnetGroup",
+          "rds:DeleteDBParameterGroup",
+          "rds:DeleteDBClusterParameterGroup",
+          "rds:Describe*",
+          "rds:ListTagsForResource",
+          "rds:AddTagsToResource",
+          "rds:RemoveTagsFromResource",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "KmsForManagedResources"
+        Effect = "Allow"
+        Action = [
+          "kms:CreateGrant",
+          "kms:RevokeGrant",
+          "kms:DescribeKey",
+          "kms:GenerateDataKey",
+          "kms:Encrypt",
+          "kms:Decrypt",
+        ]
+        Resource = aws_kms_key.managed_resources.arn
+      },
+      {
+        Sid    = "Ec2NetworkLookups"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeAvailabilityZones",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeAccountAttributes",
+        ]
+        # ec2:Describe* does not support resource-level permissions.
+        Resource = "*"
+      },
+      {
+        Sid      = "PassMonitoringRole"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
+        Resource = "*"
+        Condition = {
+          # Only the RDS enhanced-monitoring service can be the target of any
+          # PassRole this role grants — terraform's RDS provisioning needs
+          # this; no other PassRole path is enabled.
+          StringEquals = { "iam:PassedToService" = "monitoring.rds.amazonaws.com" }
+        }
+      },
+      {
+        Sid    = "SecretsManagerForRdsMasterSecret"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:CreateSecret",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DeleteSecret",
+          "secretsmanager:TagResource",
+        ]
+        Resource = "arn:aws:secretsmanager:*:*:secret:forge-*"
+      },
+    ]
+  })
+}
+
+output "managed_database_role_arn" {
+  description = "ARN of the per-package IAM role the worker assumes before applying managed_database packages. Plumbed through infrastructure/dev to the worker ECS task as FORGE_AWS__MANAGED_RESOURCES_ROLE_ARNS."
+  value       = aws_iam_role.managed_database.arn
+}
+
+output "managed_database_role_name" {
+  description = "Name of the per-package IAM role (matches the assume_role_policy ARN constructed in this stack)."
+  value       = aws_iam_role.managed_database.name
+}

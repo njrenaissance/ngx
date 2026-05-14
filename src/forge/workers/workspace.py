@@ -114,6 +114,16 @@ def materialize_workspace(session: Session, resource_request: ResourceRequest) -
     shutil.copytree(source_terraform_dir, dest, dirs_exist_ok=True)
 
     tfvars = {resource_type.terraform_variable_map[k]: v for k, v in resource_request.config.items()}
+
+    # Per-package assume-role ARN — worker-owned concern, intentionally outside
+    # terraform_variable_map so the bidirectional varmap check at L91 stays a
+    # strict request.config ↔ catalog contract. Looked up by resource_type.name
+    # (e.g. "managed_database") so each package gets its own IAM identity.
+    # Empty string when unmapped → the package's gated `assume_role` block in
+    # aws/main.tf collapses and ambient credentials are used (local-dev path
+    # documented in ADR-018).
+    tfvars["managed_resources_role_arn"] = settings.aws.managed_resources_role_arns.get(resource_type.name, "")
+
     (dest / "terraform.tfvars.json").write_text(json.dumps(tfvars, indent=2, sort_keys=True))
 
     (dest / "backend.tf").write_text(

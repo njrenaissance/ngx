@@ -75,6 +75,19 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "task_time_limit": 1800,  # 30 min hard kill — covers a slow terraform apply
         "task_soft_time_limit": 1500,  # 25 min soft — leaves room for in-task cleanup
     },
+    "aws": {
+        # AWS provider settings — separate from FORGE_TERRAFORM__* (which is
+        # backend-bucket concerns). Empty defaults so compose dev boots without
+        # AWS credentials; cloud envs set FORGE_AWS__* explicitly.
+        "region": "",
+        # "" → boto3 / terraform fall back to the default credential chain
+        # (env vars, instance metadata, etc.) rather than a named profile.
+        "profile": "",
+        # Empty dict → worker injects managed_resources_role_arn="" into each
+        # package's tfvars, which collapses the gated `assume_role` block in
+        # the package's aws/main.tf. Cloud sets this to {"<resource_type.name>": "<arn>"}.
+        "managed_resources_role_arns": {},
+    },
     "terraform": {
         # Empty strings fail loud at materialize-time when the worker tries to
         # render backend.tf — cloud envs must set FORGE_TERRAFORM__MANAGED_RESOURCES_*.
@@ -105,7 +118,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 # into Settings as a stray field at construction time — and with
 # extra="forbid" that surfaces as a loud ValidationError rather than a
 # silent type mismatch.
-_NESTED_SETTINGS_KEYS: frozenset[str] = frozenset({"database", "celery", "terraform", "log"})
+_NESTED_SETTINGS_KEYS: frozenset[str] = frozenset({"database", "celery", "aws", "terraform", "log"})
 
 
 def _check_unknown_env_vars(
@@ -285,6 +298,58 @@ class CelerySettings(BaseSettings):
     settings_customise_sources = _build_customise_sources("celery")
 
 
+class AwsSettings(BaseSettings):
+    """AWS provider settings — region, optional local profile, and per-package
+    managed-resources role ARNs the worker assumes before invoking
+    `terraform apply`.
+
+    Terraform abstracts the IaC lifecycle (plan/apply/destroy + state) but
+    not cloud IAM — every action terraform's AWS provider issues still has
+    to be authorised by an IAM principal. To keep the worker task role's
+    blast radius narrow, the worker assumes a per-package role per request
+    before applying. Empty `managed_resources_role_arns` (the local-dev
+    default) → the package's gated `assume_role` block collapses and the
+    developer's ambient credentials are used instead.
+
+    Naming is intentionally AWS-specific: a future GCP / Azure provisioning
+    provider would get its own nested settings class with that provider's
+    identity primitives (service accounts, managed identities). Don't
+    rename to a vendor-neutral umbrella.
+
+    FORGE_TERRAFORM__MANAGED_RESOURCES_REGION (TerraformSettings) is the
+    backend-bucket region — a terraform-mechanics concern, separate from
+    the AWS provider region here. They usually match in practice but are
+    conceptually different.
+
+    Baseline values live in DEFAULT_SETTINGS["aws"]. Env vars
+    (FORGE_AWS__REGION, FORGE_AWS__PROFILE, FORGE_AWS__MANAGED_RESOURCES_ROLE_ARNS)
+    override them at runtime. Pydantic-settings JSON-parses dict-typed
+    fields, so FORGE_AWS__MANAGED_RESOURCES_ROLE_ARNS={"database":"arn:..."}.
+
+    Direct construction note: `AwsSettings()` is wired to read its baseline
+    from DEFAULT_SETTINGS via _build_customise_sources. Always import via
+    `from forge.config import settings`.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="FORGE_AWS__",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="forbid",
+    )
+
+    region: str
+    profile: str
+    managed_resources_role_arns: dict[str, str]
+
+    @model_validator(mode="after")
+    def _reject_unknown_env_vars(self) -> "AwsSettings":
+        _check_unknown_env_vars(self)
+        return self
+
+    settings_customise_sources = _build_customise_sources("aws")
+
+
 class TerraformSettings(BaseSettings):
     """Terraform workspace / managed-resources settings.
 
@@ -426,6 +491,7 @@ class Settings(BaseSettings):
     # via _build_customise_sources. They construct themselves from () here.
     database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # type: ignore[call-arg]
     celery: CelerySettings = Field(default_factory=lambda: CelerySettings())  # type: ignore[call-arg]
+    aws: AwsSettings = Field(default_factory=lambda: AwsSettings())  # type: ignore[call-arg]
     terraform: TerraformSettings = Field(default_factory=lambda: TerraformSettings())  # type: ignore[call-arg]
     log: LogSettings = Field(default_factory=lambda: LogSettings())  # type: ignore[call-arg]
 

@@ -109,14 +109,22 @@ def workspace_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture
 def patched_settings(monkeypatch: pytest.MonkeyPatch, packages_dir: Path) -> None:
-    """Override settings.terraform.* and environment in the workspace module's
-    namespace. The materializer reads `settings.environment` and
-    `settings.terraform.*` directly, so we patch the module-bound `settings`."""
+    """Override settings.terraform.*, settings.aws.*, and environment in the
+    workspace module's namespace. The materializer reads `settings.environment`,
+    `settings.terraform.*`, and `settings.aws.managed_resources_role_arns`
+    directly, so we patch the module-bound `settings`.
+
+    Default aws.managed_resources_role_arns is an empty dict — mirrors local
+    dev where the worker injects managed_resources_role_arn="" into tfvars and
+    the package's gated `assume_role` block collapses. Tests that exercise
+    the cloud path override this with a populated dict.
+    """
     fake = MagicMock()
     fake.environment = "dev"
     fake.terraform.managed_resources_bucket = "test-bucket"
     fake.terraform.managed_resources_region = "us-east-1"
     fake.terraform.packages_dir = str(packages_dir)
+    fake.aws.managed_resources_role_arns = {}
     monkeypatch.setattr(workspace_module, "settings", fake)
 
 
@@ -201,7 +209,14 @@ class TestMaterializeWorkspaceHappyPath:
         dest = materialize_workspace(session, rr)
         tfvars = json.loads((dest / "terraform.tfvars.json").read_text())
         # Keys are renamed via terraform_variable_map; values are preserved.
-        assert tfvars == {"db_engine": "postgres", "db_size": "small", "db_storage_gb": 100}
+        # managed_resources_role_arn is injected outside the varmap (empty in
+        # this fixture's local-dev posture) — exercised separately below.
+        assert tfvars == {
+            "db_engine": "postgres",
+            "db_size": "small",
+            "db_storage_gb": 100,
+            "managed_resources_role_arn": "",
+        }
 
     def test_backend_tf_contains_expected_state_key(self) -> None:
         rt = _ResourceTypeStub()
@@ -260,6 +275,124 @@ class TestMaterializeWorkspaceHappyPath:
         assert (dest / "variables.tf").exists()
         assert (dest / "outputs.tf").exists()
         assert (dest / "aws" / "main.tf").exists()
+
+
+@pytest.mark.usefixtures("workspace_root")
+class TestManagedResourcesRoleArnInjection:
+    """Per-package assume-role ARN is injected into tfvars outside the varmap
+    (issue #86). Covers the local-dev path (empty map → empty string) and the
+    cloud path (configured map → ARN written into tfvars under
+    `managed_resources_role_arn`).
+
+    Uses its own settings override per test so the role-arn map is the only
+    moving part; the other settings.aws.* / settings.terraform.* keys mirror
+    the patched_settings fixture defaults.
+    """
+
+    def _patch_settings(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        packages_dir: Path,
+        managed_resources_role_arns: dict[str, str],
+    ) -> None:
+        fake = MagicMock()
+        fake.environment = "dev"
+        fake.terraform.managed_resources_bucket = "test-bucket"
+        fake.terraform.managed_resources_region = "us-east-1"
+        fake.terraform.packages_dir = str(packages_dir)
+        fake.aws.managed_resources_role_arns = managed_resources_role_arns
+        monkeypatch.setattr(workspace_module, "settings", fake)
+
+    def test_role_arn_injected_when_resource_type_mapped(
+        self, monkeypatch: pytest.MonkeyPatch, packages_dir: Path
+    ) -> None:
+        # Cloud path: settings.aws.managed_resources_role_arns has an entry
+        # for this resource type's name. Worker writes the ARN into tfvars
+        # under the package var name `managed_resources_role_arn`.
+        arn = "arn:aws:iam::123456789012:role/forge-managed-database-role"
+        self._patch_settings(monkeypatch, packages_dir, {"managed_database": arn})
+
+        rt = _ResourceTypeStub(name="managed_database")
+        rr = _ResourceRequestStub(resource_type_id=rt.id)
+        session = _build_session(rt, _TierPolicyStub(1), _LogicalRegionStub(), [_AzStub(1)])
+
+        dest = materialize_workspace(session, rr)
+        tfvars = json.loads((dest / "terraform.tfvars.json").read_text())
+        assert tfvars["managed_resources_role_arn"] == arn
+        # Varmap-mapped keys still flow through unchanged — the injection
+        # is purely additive.
+        assert tfvars["db_engine"] == "postgres"
+        assert tfvars["db_size"] == "small"
+        assert tfvars["db_storage_gb"] == 100
+
+    def test_role_arn_empty_when_resource_type_unmapped(
+        self, monkeypatch: pytest.MonkeyPatch, packages_dir: Path
+    ) -> None:
+        # Local-dev path: empty map means the package's gated `assume_role`
+        # block collapses and ambient credentials are used. Worker writes an
+        # empty string rather than omitting the key so the terraform variable
+        # always has a value (the package's `default = ""` covers this too,
+        # but the explicit empty makes the contract obvious).
+        self._patch_settings(monkeypatch, packages_dir, {})
+
+        rt = _ResourceTypeStub(name="managed_database")
+        rr = _ResourceRequestStub(resource_type_id=rt.id)
+        session = _build_session(rt, _TierPolicyStub(1), _LogicalRegionStub(), [_AzStub(1)])
+
+        dest = materialize_workspace(session, rr)
+        tfvars = json.loads((dest / "terraform.tfvars.json").read_text())
+        assert tfvars["managed_resources_role_arn"] == ""
+
+    def test_role_arn_empty_when_map_present_but_resource_type_missing(
+        self, monkeypatch: pytest.MonkeyPatch, packages_dir: Path
+    ) -> None:
+        # Defensive: map is populated for other packages but not this one.
+        # Worker doesn't fail — falls through to the empty-string default so
+        # a partial cloud rollout can proceed package-by-package.
+        self._patch_settings(
+            monkeypatch,
+            packages_dir,
+            {"managed_cache": "arn:aws:iam::123456789012:role/forge-managed-cache-role"},
+        )
+
+        rt = _ResourceTypeStub(name="managed_database")
+        rr = _ResourceRequestStub(resource_type_id=rt.id)
+        session = _build_session(rt, _TierPolicyStub(1), _LogicalRegionStub(), [_AzStub(1)])
+
+        dest = materialize_workspace(session, rr)
+        tfvars = json.loads((dest / "terraform.tfvars.json").read_text())
+        assert tfvars["managed_resources_role_arn"] == ""
+
+    def test_role_arn_lookup_selects_correct_entry_from_multi_arn_map(
+        self, monkeypatch: pytest.MonkeyPatch, packages_dir: Path
+    ) -> None:
+        # Forward-looking: once managed_cache (and others) land, the map will
+        # carry multiple entries simultaneously. The worker must pick the
+        # entry matching this request's resource_type.name and ignore the
+        # rest — no merging, no first-key-wins surprises.
+        db_arn = "arn:aws:iam::123456789012:role/forge-managed-database-role"
+        cache_arn = "arn:aws:iam::123456789012:role/forge-managed-cache-role"
+        other_arn = "arn:aws:iam::123456789012:role/forge-managed-queue-role"
+        self._patch_settings(
+            monkeypatch,
+            packages_dir,
+            {
+                "managed_database": db_arn,
+                "managed_cache": cache_arn,
+                "managed_queue": other_arn,
+            },
+        )
+
+        rt = _ResourceTypeStub(name="managed_database")
+        rr = _ResourceRequestStub(resource_type_id=rt.id)
+        session = _build_session(rt, _TierPolicyStub(1), _LogicalRegionStub(), [_AzStub(1)])
+
+        dest = materialize_workspace(session, rr)
+        tfvars = json.loads((dest / "terraform.tfvars.json").read_text())
+        assert tfvars["managed_resources_role_arn"] == db_arn
+        # Negative assertion: the worker is selecting, not merging.
+        assert cache_arn not in tfvars.values()
+        assert other_arn not in tfvars.values()
 
 
 @pytest.mark.usefixtures("workspace_root", "patched_settings")
@@ -354,6 +487,7 @@ class TestMissingPackageDir:
         fake.terraform.managed_resources_bucket = "test-bucket"
         fake.terraform.managed_resources_region = "us-east-1"
         fake.terraform.packages_dir = str(empty)
+        fake.aws.managed_resources_role_arns = {}
         monkeypatch.setattr(workspace_module, "settings", fake)
 
         rt = _ResourceTypeStub()

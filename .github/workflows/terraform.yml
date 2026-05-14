@@ -155,6 +155,10 @@ jobs:
           TF_VAR_managed_resources_bucket: ${{ vars.MANAGED_RESOURCES_BUCKET }}
           TF_VAR_managed_resources_region: ${{ vars.MANAGED_RESOURCES_REGION }}
           TF_VAR_managed_resources_kms_key_arn: ${{ vars.MANAGED_RESOURCES_KMS_KEY_ARN }}
+          # Per-package managed-resources role ARN (issue #86). Bootstrap
+          # outputs `managed_database_role_arn`; set the matching repo
+          # variable from `terraform -chdir=infrastructure/bootstrap output`.
+          TF_VAR_managed_database_role_arn: ${{ vars.MANAGED_DATABASE_ROLE_ARN }}
         run: |
           set -o pipefail
           terraform plan -input=false -no-color -out=tfplan | tee plan.txt
@@ -242,6 +246,7 @@ jobs:
       TF_VAR_managed_resources_bucket: ${{ vars.MANAGED_RESOURCES_BUCKET }}
       TF_VAR_managed_resources_region: ${{ vars.MANAGED_RESOURCES_REGION }}
       TF_VAR_managed_resources_kms_key_arn: ${{ vars.MANAGED_RESOURCES_KMS_KEY_ARN }}
+      TF_VAR_managed_database_role_arn: ${{ vars.MANAGED_DATABASE_ROLE_ARN }}
 
     steps:
       - name: Checkout

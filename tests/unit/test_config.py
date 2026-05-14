@@ -19,6 +19,7 @@ from pydantic import ValidationError
 
 from forge.config import (
     DEFAULT_SETTINGS,
+    AwsSettings,
     CelerySettings,
     DatabaseSettings,
     LogSettings,
@@ -103,6 +104,51 @@ class TestExtraForbid:
         monkeypatch.setenv("FORGE_LOG__LEVL", "DEBUG")
         with pytest.raises(ValidationError):
             LogSettings()  # type: ignore[call-arg]
+
+    def test_unknown_nested_aws_env_var_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Typo: FORGE_AWS__REGON instead of FORGE_AWS__REGION.
+        monkeypatch.setenv("FORGE_AWS__REGON", "us-east-1")
+        with pytest.raises(ValidationError):
+            AwsSettings()  # type: ignore[call-arg]
+
+
+class TestAwsSettings:
+    """AwsSettings is the per-package IAM identities config block (issue #86)."""
+
+    def test_defaults_from_default_settings(self) -> None:
+        # Empty defaults so compose dev boots without AWS credentials; cloud
+        # envs override via FORGE_AWS__*.
+        aws = AwsSettings()  # type: ignore[call-arg]
+        assert aws.region == ""
+        assert aws.profile == ""
+        assert aws.managed_resources_role_arns == {}
+
+    def test_region_and_profile_overridable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("FORGE_AWS__REGION", "us-east-1")
+        monkeypatch.setenv("FORGE_AWS__PROFILE", "ngx-deployer")
+        aws = AwsSettings()  # type: ignore[call-arg]
+        assert aws.region == "us-east-1"
+        assert aws.profile == "ngx-deployer"
+
+    def test_managed_resources_role_arns_parsed_from_json_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Pydantic-settings JSON-parses dict-typed fields from env. This is
+        # how the ECS task definition will hand the worker its per-package
+        # role ARN map.
+        monkeypatch.setenv(
+            "FORGE_AWS__MANAGED_RESOURCES_ROLE_ARNS",
+            '{"database":"arn:aws:iam::123456789012:role/forge-managed-database-role"}',
+        )
+        aws = AwsSettings()  # type: ignore[call-arg]
+        assert aws.managed_resources_role_arns == {
+            "database": "arn:aws:iam::123456789012:role/forge-managed-database-role"
+        }
+
+    def test_settings_exposes_aws_nested_block(self) -> None:
+        # Smoke test that the nested block is wired into Settings and reachable
+        # as settings.aws (the access pattern the worker uses).
+        s = _build_settings()
+        assert isinstance(s.aws, AwsSettings)
+        assert s.aws.managed_resources_role_arns == {}
 
 
 class TestHostDefault:

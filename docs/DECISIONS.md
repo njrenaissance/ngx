@@ -923,3 +923,158 @@ lock table is created for this bucket.
 - **No locking at all (terraform's pre-1.10 default of `force_unlock`).**
   Doesn't survive the acks_late redelivery race; one of the racing
   tasks will corrupt state. Non-starter even for POC.
+
+---
+
+## ADR-018 — Per-package managed-resources IAM identities
+
+**Date:** 2026-05-14
+**Status:** Accepted
+**Originating issue:** [#86](https://github.com/njrenaissance/ngx/issues/86) (Parts B/C/D of #72; Part A landed in PR #85)
+
+### Context
+
+Forge uses Terraform as the IaC abstraction (uniform `plan` → `apply` →
+`output` → `destroy` lifecycle, portable workspace materialisation), but
+Terraform is **not** a cloud-IAM abstraction. Every action the AWS
+provider issues still has to be authorised by an AWS IAM principal whose
+policy explicitly permits that action.
+
+Before this change the worker task role
+(`forge-<env>-ecs-worker-task-role`) had S3 + KMS on the managed-resources
+bucket and CMK only — exactly the surface for writing per-request
+Terraform state, but missing every permission terraform's AWS provider
+needs to actually *create* the underlying resources
+(`rds:CreateDBCluster`, `ec2:Describe*`, `iam:PassRole`, etc.). A
+`POST /v1/resources` against a real AWS account would apply-fail with
+`AccessDenied`.
+
+Putting the provisioning permissions directly on the worker task role
+would close the gap but inflate blast radius: a compromised worker
+process (which executes user-influenced terraform packages) would
+inherit the *union* of every catalog package's AWS API surface — RDS +
+ElastiCache + future S3/SNS/SQS/etc. — for every request, regardless of
+which package the request actually exercises.
+
+[ADR-012](#adr-012--worker-iam-role-split-shared-execution-role-separate-task-role)
+already split the task role from the execution role and named
+`ecs_worker_task` as the attachment point for "things the worker
+actually does." This ADR records how we attach those things.
+
+### Decision
+
+**One AWS IAM role per managed-resource package type.** The worker
+assumes the package-specific role per request via `sts:AssumeRole`
+*before* invoking `terraform apply` on that package. The package's
+`provider "aws"` block carries a `dynamic "assume_role"` gated on a
+`managed_resources_role_arn` variable injected by the worker.
+
+Roles are named `forge-managed-<package>-role` (e.g.
+`forge-managed-database-role`). Scope of the introducing PR: only
+`managed_database`, the only package that exists today. `managed_cache`
+and any future package get their own role with their own permission
+policy when the package itself lands.
+
+**Trust model.** Each per-package role's trust policy lists the per-env
+worker task role(s) as the only allowed principals, expressed as
+constructed-by-name ARNs
+(`arn:aws:iam::<account>:role/forge-<env>-ecs-worker-task-role`). IAM
+does not validate principal-ARN existence at policy-create time, so the
+bootstrap stack can create the per-package roles *before* any per-env
+stack creates its worker role — breaking the circular plan dependency
+between bootstrap (account-level, runs first) and dev/staging/prod
+(per-env, runs after). The trusted-env list lives on the bootstrap
+stack as `var.worker_task_role_environments` (default `["dev"]`).
+
+**Config plumbing.** A new nested `AwsSettings` class in
+`src/forge/config.py` carries `region`, `profile`, and a
+`managed_resources_role_arns: dict[str, str]` keyed by
+`resource_type.name`. The dev stack populates the env var from the
+bootstrap output; the worker reads the map at workspace-materialize
+time and injects the matching ARN into each package's
+`terraform.tfvars.json` *outside* the existing
+`terraform_variable_map` (the strict bidirectional varmap check stays a
+request.config ↔ catalog contract; the role ARN is a worker-owned
+infrastructure concern).
+
+**Local dev.** Empty role-ARN map (`FORGE_AWS__MANAGED_RESOURCES_ROLE_ARNS={}`,
+the `DEFAULT_SETTINGS["aws"]` baseline) → worker injects
+`managed_resources_role_arn = ""` → the package's gated `assume_role`
+block collapses → terraform uses the developer's ambient AWS
+credentials (the path established by PR #85). No localstack moving
+part. STS is a cloud-only concern.
+
+### Why
+
+- **Blast radius is bounded per package.** A compromised worker process
+  can only call the AWS APIs of whichever package's role it has most
+  recently assumed (and only for the lifetime of that role's STS
+  credentials). The union-of-all-packages failure mode is gone.
+- **The per-package boundary is enforced at the AWS IAM layer**, not in
+  Python. Terraform's AWS provider talks to AWS directly using whatever
+  credentials it's handed; if the credentials don't allow an action,
+  AWS denies it regardless of what the worker code intended.
+- **Static principals avoid a circular plan dependency.** If the trust
+  policy referenced the worker role *resource*, bootstrap would need to
+  read the per-env stack's state to construct the trust, and the per-env
+  stack would need the bootstrap role ARN to attach the
+  `sts:AssumeRole` permission. Constructed-by-name ARNs cut the loop.
+- **The naming intentionally surfaces the cloud.** `AwsSettings` is
+  AWS-specific by design — a future GCP/Azure provisioning provider
+  would get its own nested settings class with that provider's identity
+  primitives (service accounts, managed identities). Don't rename to a
+  vendor-neutral umbrella.
+
+### Consequences
+
+- Each new managed-resource package adds three changes that must land
+  together: (1) a new IAM role + policy in `infrastructure/bootstrap`,
+  (2) the role ARN plumbed through `infrastructure/dev` →
+  `infrastructure/modules/ecs_service` as a new key on the worker's
+  `FORGE_AWS__MANAGED_RESOURCES_ROLE_ARNS` JSON and added to the
+  worker task role's `sts:AssumeRole` Resource list, (3) a
+  `managed_resources_role_arn` variable + gated `assume_role` block in
+  the package's `terraform/aws/main.tf`.
+- The package's permission policy is hand-authored per package — there
+  is no automatic derivation from the package's `terraform/` body.
+  Reviewer discipline: when a package adds a new AWS resource type, its
+  per-package role's policy must grow the matching action. CloudTrail
+  on the first real apply surfaces missing permissions.
+- Empty-string role ARNs are valid and produce the local-dev fallback
+  behaviour. Cloud deploys that *intend* to use the IAM split must
+  ensure CI populates the bootstrap output into the dev tfvars — the
+  dev stack's variable is required (no default) so a forgotten wiring
+  fails at plan time, not at first real request.
+- Worker task role keeps its narrow S3 + KMS posture; it gains exactly
+  one new permission (`sts:AssumeRole` scoped to the per-package role
+  ARNs). The api task role is unchanged.
+- Multi-environment rollouts (staging, prod) require the bootstrap stack
+  operator to add the new env's short-name to
+  `var.worker_task_role_environments` (default `["dev"]`) and re-apply
+  bootstrap before that env's per-env stack first assumes any
+  per-package role. Bootstrap is account-level, so this is a one-time
+  list extension per account, not per env.
+
+### Alternatives considered
+
+- **Grant the provisioning permissions directly on the worker task
+  role.** Simplest wiring (no STS hop, no per-package role). Rejected
+  because it merges every catalog package's AWS API surface onto one
+  principal — defeats the per-package isolation the worker exists to
+  enforce.
+- **Per-request short-lived IAM roles** (one role per provisioning
+  request, created and destroyed on the fly). Cleanest blast radius
+  story but adds latency and IAM API quota cost on every request,
+  and the audit trail (CloudTrail showing role create/delete events
+  for every POST) is noisier than the value gained over per-package
+  roles.
+- **Trust the worker role by ARN of the resource** rather than by
+  constructed name. Cleaner in a single-stack world but creates a
+  circular plan dependency between bootstrap and per-env stacks. IAM's
+  late-binding of principal ARNs is the standard idiom for breaking
+  exactly this loop.
+- **Cross-account managed resources.** Each package's resources live in
+  a separate sub-account assumed via STS. Strongest isolation but
+  out of scope for the demo window and requires AWS Organizations
+  plumbing. The per-package-role approach gets most of the isolation
+  benefit within a single account.

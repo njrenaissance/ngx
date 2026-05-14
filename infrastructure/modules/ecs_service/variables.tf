@@ -110,3 +110,10 @@ variable "managed_resources_kms_key_arn" {
   description = "ARN of the CMK encrypting the managed-resources bucket. Worker task role gets kms:Encrypt/Decrypt/GenerateDataKey/DescribeKey on this key so SSE-KMS reads/writes succeed."
   type        = string
 }
+
+# ─── Per-package managed-resources IAM identities (issue #86) ────────────────
+
+variable "managed_database_role_arn" {
+  description = "ARN of the per-package managed_database IAM role. Created in the bootstrap stack. This module wires it into the worker task env as FORGE_AWS__MANAGED_RESOURCES_ROLE_ARNS={\"managed_database\": <arn>} and grants the worker task role sts:AssumeRole scoped to it. The worker assumes this role per request before invoking `terraform apply` on a managed_database package."
+  type        = string
+}
