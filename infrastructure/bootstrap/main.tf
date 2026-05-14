@@ -295,8 +295,15 @@ output "managed_resources_kms_key_alias" {
 # trust string must be updated in lockstep.
 
 locals {
-  worker_task_role_name = "forge-ecs-worker-task-role"
-  worker_task_role_arn  = "arn:aws:iam::${local.account_id}:role/${local.worker_task_role_name}"
+  # Worker task role names follow the per-env naming convention enforced by
+  # infrastructure/modules/ecs_service: `forge-<env>-ecs-worker-task-role`.
+  # The bootstrap stack is account-level (no env concept), so we construct
+  # one trust ARN per environment listed in var.worker_task_role_environments
+  # — the role(s) need not exist yet (constructed-by-name principals).
+  worker_task_role_arns = [
+    for env in var.worker_task_role_environments :
+    "arn:aws:iam::${local.account_id}:role/forge-${env}-ecs-worker-task-role"
+  ]
 }
 
 # Scope of this issue: only the `managed_database` role. Other packages
@@ -311,7 +318,7 @@ resource "aws_iam_role" "managed_database" {
     Statement = [{
       Sid       = "AllowWorkerTaskRoleToAssume"
       Effect    = "Allow"
-      Principal = { AWS = local.worker_task_role_arn }
+      Principal = { AWS = local.worker_task_role_arns }
       Action    = "sts:AssumeRole"
     }]
   })
