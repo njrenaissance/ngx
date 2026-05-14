@@ -26,6 +26,19 @@ variable "name_prefix" {
 
 provider "aws" {
   region = var.aws_region
+
+  # Per-package assume-role boundary (issue #86). When the worker injects a
+  # non-empty managed_resources_role_arn into terraform.tfvars.json, terraform
+  # assumes that role for every AWS API call in this workspace — narrowing
+  # the worker process's effective permissions to exactly what this package
+  # needs. Empty string → block collapses and the developer's ambient AWS
+  # credentials are used instead (local-dev path, ADR-018).
+  dynamic "assume_role" {
+    for_each = var.managed_resources_role_arn != "" ? [1] : []
+    content {
+      role_arn = var.managed_resources_role_arn
+    }
+  }
 }
 
 data "aws_vpc" "main" {
