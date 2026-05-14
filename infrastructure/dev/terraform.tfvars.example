@@ -21,3 +21,8 @@ app_image = "328926346833.dkr.ecr.us-east-1.amazonaws.com/forge-dev:latest"
 managed_resources_bucket      = "forge-managed-resources-328926346833"
 managed_resources_region      = "us-east-1"
 managed_resources_kms_key_arn = "arn:aws:kms:us-east-1:328926346833:key/REPLACE-WITH-KMS-KEY-UUID"
+
+# Per-package managed-resources IAM identities (issue #86). Read from
+# `terraform output` in infrastructure/bootstrap/ after the bootstrap apply:
+#   terraform -chdir=infrastructure/bootstrap output managed_database_role_arn
+managed_database_role_arn = "arn:aws:iam::328926346833:role/forge-managed-database-role"

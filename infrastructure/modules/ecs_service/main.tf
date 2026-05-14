@@ -23,6 +23,17 @@ locals {
     # backend.tf for per-request workspaces.
     { name = "FORGE_TERRAFORM__MANAGED_RESOURCES_BUCKET", value = var.managed_resources_bucket },
     { name = "FORGE_TERRAFORM__MANAGED_RESOURCES_REGION", value = var.managed_resources_region },
+    # AWS provider settings (issue #86). FORGE_AWS__REGION is consumed by the
+    # worker when building tfvars for managed-resources packages. PROFILE is
+    # blank in cloud — boto3 / terraform fall back to the task's IAM role
+    # via the default credential chain. MANAGED_RESOURCES_ROLE_ARNS is a
+    # JSON-encoded map keyed by resource_type.name; the worker looks up the
+    # role by package name and injects it into terraform.tfvars.json so the
+    # package's gated `assume_role` provider block can use it. Empty string
+    # ARNs are valid and produce the local-dev fallback behaviour.
+    { name = "FORGE_AWS__REGION", value = var.aws_region },
+    { name = "FORGE_AWS__PROFILE", value = "" },
+    { name = "FORGE_AWS__MANAGED_RESOURCES_ROLE_ARNS", value = jsonencode({ managed_database = var.managed_database_role_arn }) },
   ]
 
   shared_secrets = [
@@ -328,6 +339,18 @@ resource "aws_iam_role_policy" "ecs_worker_managed_resources" {
           "kms:DescribeKey",
         ]
         Resource = var.managed_resources_kms_key_arn
+      },
+      {
+        # Issue #86: per-package managed-resources IAM identities. The
+        # worker assumes the package-specific role before invoking
+        # `terraform apply` for that package — a compromised worker is
+        # bounded to one package's AWS API surface. Resource is the list of
+        # per-package role ARNs (today just managed_database; managed_cache
+        # adds its ARN here when the package lands).
+        Sid      = "AssumeManagedResourcesRoles"
+        Effect   = "Allow"
+        Action   = "sts:AssumeRole"
+        Resource = [var.managed_database_role_arn]
       },
     ]
   })

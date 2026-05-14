@@ -107,6 +107,12 @@ module "ecs_service" {
   managed_resources_bucket      = var.managed_resources_bucket
   managed_resources_region      = var.managed_resources_region
   managed_resources_kms_key_arn = var.managed_resources_kms_key_arn
+
+  # Per-package managed-resources IAM identities (issue #86). Bootstrap
+  # creates the role; this stack threads the ARN into the worker task's
+  # FORGE_AWS__MANAGED_RESOURCES_ROLE_ARNS env var and grants the worker
+  # task role sts:AssumeRole scoped to it.
+  managed_database_role_arn = var.managed_database_role_arn
 }
 
 # CloudWatch alarms + SNS email notifications for all four observable layers:

@@ -74,3 +74,16 @@ variable "managed_resources_kms_key_arn" {
   description = "ARN of the CMK encrypting the managed-resources bucket. Output by infrastructure/bootstrap as managed_resources_kms_key_arn."
   type        = string
 }
+
+# ─── Per-package managed-resources IAM identities (issue #86) ────────────────
+#
+# Output by the bootstrap stack (managed_database_role_arn). The dev stack
+# threads this through the ecs_service module so the worker's ECS task gets
+# FORGE_AWS__MANAGED_RESOURCES_ROLE_ARNS = {"managed_database": "<arn>"} on
+# its environment, and the worker task role gets sts:AssumeRole scoped to
+# the same ARN. CI populates this from the bootstrap output at apply time.
+
+variable "managed_database_role_arn" {
+  description = "ARN of the per-package managed_database IAM role. Output by infrastructure/bootstrap as managed_database_role_arn."
+  type        = string
+}
