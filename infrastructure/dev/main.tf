@@ -1,5 +1,17 @@
 locals {
   name_prefix = "forge-${var.environment}"
+
+  # Bootstrap-handoff values arrive as operator/CI-supplied strings (GitHub
+  # repo variables -> TF_VAR_*). A stray trailing newline — from a copy-paste
+  # or an untrimmed `terraform output | gh variable set` pipeline — rides
+  # straight into IAM policy Resource ARNs, where exact-string matching then
+  # fails silently: the policy looks correct but matches nothing real, and
+  # the only symptom is a runtime AccessDenied. trimspace() neutralizes that
+  # whole class of error at the stack boundary.
+  managed_resources_bucket      = trimspace(var.managed_resources_bucket)
+  managed_resources_region      = trimspace(var.managed_resources_region)
+  managed_resources_kms_key_arn = trimspace(var.managed_resources_kms_key_arn)
+  managed_database_role_arn     = trimspace(var.managed_database_role_arn)
 }
 
 # Resolve the OIDC deploy role ARN so the KMS module can include it as an
@@ -104,15 +116,15 @@ module "ecs_service" {
   # Managed-resources backend (issue #51 / E.3). The bootstrap stack creates
   # the bucket + CMK; this stack just plumbs the names/ARN into the worker's
   # task env (via shared_environment) and IAM policy.
-  managed_resources_bucket      = var.managed_resources_bucket
-  managed_resources_region      = var.managed_resources_region
-  managed_resources_kms_key_arn = var.managed_resources_kms_key_arn
+  managed_resources_bucket      = local.managed_resources_bucket
+  managed_resources_region      = local.managed_resources_region
+  managed_resources_kms_key_arn = local.managed_resources_kms_key_arn
 
   # Per-package managed-resources IAM identities (issue #86). Bootstrap
   # creates the role; this stack threads the ARN into the worker task's
   # FORGE_AWS__MANAGED_RESOURCES_ROLE_ARNS env var and grants the worker
   # task role sts:AssumeRole scoped to it.
-  managed_database_role_arn = var.managed_database_role_arn
+  managed_database_role_arn = local.managed_database_role_arn
 }
 
 # CloudWatch alarms + SNS email notifications for all four observable layers:
