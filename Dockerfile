@@ -43,6 +43,12 @@ COPY alembic/ ./alembic/
 COPY alembic.ini ./alembic.ini
 COPY db/ ./db/
 
+# Resource-type packages. The worker reads <PACKAGES_DIR>/<type>/v<n>/terraform
+# at runtime to materialize per-request Terraform workspaces (PACKAGES_DIR
+# defaults to ./packages, relative to WORKDIR /app). docker-compose bind-mounts
+# the host tree for local dev, which masked the absence of this COPY.
+COPY packages/ ./packages/
+
 # ─── Runtime ──────────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
@@ -55,6 +61,7 @@ COPY --from=builder --chown=forge:forge /app/src /app/src
 COPY --from=builder --chown=forge:forge /app/alembic /app/alembic
 COPY --from=builder --chown=forge:forge /app/alembic.ini /app/alembic.ini
 COPY --from=builder --chown=forge:forge /app/db /app/db
+COPY --from=builder --chown=forge:forge /app/packages /app/packages
 
 # Pinned terraform CLI from the builder. Owned by root with mode 755 so
 # unprivileged forge user can exec it but not modify it.
