@@ -186,6 +186,6 @@ def provision_resource(resource_request_id: str) -> str:
 
             logger.error(
                 "terraform failed",
-                extra={**log_ctx, "stage": stage, "deployment_id": str(deployment.id)},
+                extra={**log_ctx, "stage": stage, "deployment_id": str(deployment.id), "error": sanitized},
             )
             return "failed"
