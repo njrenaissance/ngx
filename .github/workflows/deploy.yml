@@ -1,6 +1,7 @@
 name: Deploy ECS Service
 
-# Triggers a rolling redeploy of the Forge ECS service after migrations complete.
+# Triggers a rolling redeploy of the Forge API and worker ECS services after
+# migrations complete.
 #
 # Pipeline order on merge to main:
 #   build-container.yml  →  migrate.yml  →  deploy.yml
@@ -43,47 +44,58 @@ jobs:
 
       - name: Trigger ECS rolling deploy
         run: |
-          aws ecs update-service \
-            --cluster "${{ vars.ECS_CLUSTER }}" \
-            --service "${{ vars.ECS_SERVICE }}" \
-            --force-new-deployment \
-            --no-cli-pager \
-            --query 'service.deployments[0].{status:status,desired:desiredCount,running:runningCount,rolloutState:rolloutState}' \
-            --output table
-
-      - name: Wait for deployment rollout (max 10 min)
-        run: |
-          CLUSTER="${{ vars.ECS_CLUSTER }}"
-          SERVICE="${{ vars.ECS_SERVICE }}"
-          TIMEOUT=600
-          INTERVAL=15
-          ELAPSED=0
-
-          echo "Polling for rolloutState=COMPLETED on primary deployment..."
-          while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-            STATE=$(aws ecs describe-services \
-              --cluster "$CLUSTER" \
-              --services "$SERVICE" \
+          # The API and worker share one image; roll both so the worker does
+          # not drift behind on code/schema changes. The worker service name
+          # is always "<api-service>-worker" (see infrastructure Terraform).
+          for SERVICE in "${{ vars.ECS_SERVICE }}" "${{ vars.ECS_SERVICE }}-worker"; do
+            echo "Forcing new deployment for ${SERVICE}..."
+            aws ecs update-service \
+              --cluster "${{ vars.ECS_CLUSTER }}" \
+              --service "$SERVICE" \
+              --force-new-deployment \
               --no-cli-pager \
-              --query 'services[0].deployments[?status==`PRIMARY`].rolloutState | [0]' \
-              --output text)
-            echo "  [${ELAPSED}s] rolloutState=${STATE}"
-            if [ -z "$STATE" ] || [ "$STATE" = "None" ]; then
-              echo "No PRIMARY deployment found on $CLUSTER/$SERVICE — aborting."
-              exit 1
-            fi
-            if [ "$STATE" = "COMPLETED" ]; then
-              echo "Deployment completed successfully."
-              exit 0
-            fi
-            if [ "$STATE" = "FAILED" ]; then
-              echo "Deployment rollout FAILED."
-              exit 1
-            fi
-            sleep "$INTERVAL"
-            ELAPSED=$((ELAPSED + INTERVAL))
+              --query 'service.deployments[0].{status:status,desired:desiredCount,running:runningCount,rolloutState:rolloutState}' \
+              --output table
           done
 
-          echo "Timed out after ${TIMEOUT}s waiting for rolloutState=COMPLETED."
-          exit 1
-        timeout-minutes: 12
+      - name: Wait for deployment rollout (max 10 min per service)
+        run: |
+          CLUSTER="${{ vars.ECS_CLUSTER }}"
+          TIMEOUT=600
+          INTERVAL=15
+
+          # Poll one service until its PRIMARY deployment reports COMPLETED.
+          wait_for_rollout() {
+            local service="$1"
+            local elapsed=0
+            echo "Polling ${service} for rolloutState=COMPLETED on primary deployment..."
+            while [ "$elapsed" -lt "$TIMEOUT" ]; do
+              STATE=$(aws ecs describe-services \
+                --cluster "$CLUSTER" \
+                --services "$service" \
+                --no-cli-pager \
+                --query 'services[0].deployments[?status==`PRIMARY`].rolloutState | [0]' \
+                --output text)
+              echo "  [${service}] [${elapsed}s] rolloutState=${STATE}"
+              if [ -z "$STATE" ] || [ "$STATE" = "None" ]; then
+                echo "No PRIMARY deployment found on $CLUSTER/$service — aborting."
+                return 1
+              fi
+              if [ "$STATE" = "COMPLETED" ]; then
+                echo "Deployment of ${service} completed successfully."
+                return 0
+              fi
+              if [ "$STATE" = "FAILED" ]; then
+                echo "Deployment rollout of ${service} FAILED."
+                return 1
+              fi
+              sleep "$INTERVAL"
+              elapsed=$((elapsed + INTERVAL))
+            done
+            echo "Timed out after ${TIMEOUT}s waiting for ${service} rolloutState=COMPLETED."
+            return 1
+          }
+
+          wait_for_rollout "${{ vars.ECS_SERVICE }}"
+          wait_for_rollout "${{ vars.ECS_SERVICE }}-worker"
+        timeout-minutes: 24
